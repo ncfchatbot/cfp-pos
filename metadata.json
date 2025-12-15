@@ -1,0 +1,5 @@
+{
+  "name": "Coffee Please",
+  "description": "Point of Sale system with Thai Interface, Lao Receipts, and Data Persistence.",
+  "requestFramePermissions": []
+}
