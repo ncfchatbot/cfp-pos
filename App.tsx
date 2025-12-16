@@ -101,6 +101,7 @@ const App: React.FC = () => {
 
   // Back Office Order Modal
   const [isOrderModalOpen, setIsOrderModalOpen] = useState(false);
+  const [editingOrder, setEditingOrder] = useState<SaleRecord | null>(null);
   const [newOrderCustomer, setNewOrderCustomer] = useState({ name: '', phone: '', address: '' });
   const [newOrderShipping, setNewOrderShipping] = useState<{carrier: LogisticsProvider, branch: string}>({ carrier: 'None', branch: '' });
   const [tempOrderCart, setTempOrderCart] = useState<CartItem[]>([]);
@@ -348,12 +349,70 @@ const App: React.FC = () => {
     const order: SaleRecord = { id: uuidv4().slice(0, 8), items: [...items], total: total, date: new Date().toLocaleString('th-TH'), timestamp: Date.now(), paymentMethod, status: 'Paid', shippingCarrier: 'None', customerName: 'Walk-in' };
     finalizeOrder(order); setCart([]); setIsPaymentModalOpen(false); setShowReceipt(true);
   };
-  const createBackOfficeOrder = () => {
+
+  const handleEditOrder = (order: SaleRecord) => {
+    setEditingOrder(order);
+    setTempOrderCart([...order.items]);
+    setNewOrderCustomer({
+        name: order.customerName || '',
+        phone: order.customerPhone || '',
+        address: order.customerAddress || ''
+    });
+    setNewOrderShipping({
+        carrier: order.shippingCarrier || 'None',
+        branch: order.shippingBranch || ''
+    });
+    setIsOrderModalOpen(true);
+  };
+
+  const handleSaveOrder = () => {
     if (tempOrderCart.length === 0) return;
     const { items, total } = calculatedTempOrderCart;
-    const order: SaleRecord = { id: uuidv4().slice(0, 8), items: [...items], total: total, date: new Date().toLocaleString('th-TH'), timestamp: Date.now(), paymentMethod: 'transfer', status: 'Pending', customerName: newOrderCustomer.name || 'Unknown', customerPhone: newOrderCustomer.phone, customerAddress: newOrderCustomer.address, shippingCarrier: newOrderShipping.carrier, shippingBranch: newOrderShipping.branch };
-    finalizeOrder(order); setTempOrderCart([]); setNewOrderCustomer({ name: '', phone: '', address: '' }); setNewOrderShipping({ carrier: 'None', branch: '' }); setSkuSearch(''); setIsOrderModalOpen(false);
+    
+    // Prepare the order object
+    const orderData: SaleRecord = {
+        id: editingOrder ? editingOrder.id : uuidv4().slice(0, 8),
+        items: [...items],
+        total: total,
+        date: editingOrder ? editingOrder.date : new Date().toLocaleString('th-TH'),
+        timestamp: editingOrder ? editingOrder.timestamp : Date.now(),
+        paymentMethod: editingOrder ? editingOrder.paymentMethod : 'transfer',
+        status: editingOrder ? editingOrder.status : 'Pending',
+        customerName: newOrderCustomer.name || 'Unknown',
+        customerPhone: newOrderCustomer.phone,
+        customerAddress: newOrderCustomer.address,
+        shippingCarrier: newOrderShipping.carrier,
+        shippingBranch: newOrderShipping.branch
+    };
+
+    if (editingOrder) {
+        // 1. Revert stock from old order
+        const productsRestored = products.map(p => {
+            const soldItem = editingOrder.items.find(i => i.id === p.id);
+            return soldItem ? { ...p, stock: p.stock + soldItem.quantity } : p;
+        });
+
+        // 2. Deduct stock for new order (from the restored list)
+        const productsFinal = productsRestored.map(p => {
+             const newItem = items.find(i => i.id === p.id);
+             return newItem ? { ...p, stock: p.stock - newItem.quantity } : p;
+        });
+
+        setProducts(productsFinal);
+        setRecentSales(prev => prev.map(s => s.id === editingOrder.id ? orderData : s));
+    } else {
+        finalizeOrder(orderData); // This function deducts stock for new orders
+    }
+    
+    // Reset states
+    setEditingOrder(null);
+    setTempOrderCart([]);
+    setNewOrderCustomer({ name: '', phone: '', address: '' });
+    setNewOrderShipping({ carrier: 'None', branch: '' });
+    setSkuSearch('');
+    setIsOrderModalOpen(false);
   };
+
   const finalizeOrder = (order: SaleRecord) => {
     setProducts(prev => prev.map(p => { const sold = order.items.find(c => c.id === p.id); return sold ? { ...p, stock: p.stock - sold.quantity } : p; }));
     setRecentSales(prev => [order, ...prev]); setCurrentOrder(order);
@@ -506,7 +565,7 @@ const App: React.FC = () => {
     <div className="p-4 md:p-6 h-full overflow-y-auto bg-slate-50/50">
       <div className="flex justify-between items-center mb-6">
         <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2"><ClipboardList className="text-sky-600" /> {t.order_title}</h2>
-        <button onClick={() => setIsOrderModalOpen(true)} className="bg-sky-600 text-white px-3 py-2 rounded-lg shadow-sm hover:bg-sky-700 flex gap-2 font-bold text-sm"><Plus size={16} /> {t.order_create}</button>
+        <button onClick={() => { setEditingOrder(null); setIsOrderModalOpen(true); }} className="bg-sky-600 text-white px-3 py-2 rounded-lg shadow-sm hover:bg-sky-700 flex gap-2 font-bold text-sm"><Plus size={16} /> {t.order_create}</button>
       </div>
       <div className="bg-white rounded-xl border border-slate-100 shadow-sm overflow-hidden overflow-x-auto">
         <table className="w-full text-left text-sm whitespace-nowrap">
@@ -530,7 +589,10 @@ const App: React.FC = () => {
                 <td className="px-4 py-3 text-right font-bold text-slate-800">{formatCurrency(order.total, language)}</td>
                 <td className="px-4 py-3"><span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${order.shippingCarrier !== 'None' ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-600'}`}>{order.shippingCarrier === 'None' ? 'None' : order.shippingCarrier}</span></td>
                 <td className="px-4 py-3"><select value={order.status} onChange={(e) => updateOrderStatus(order.id, e.target.value as OrderStatus)} className={`text-[10px] font-bold px-2 py-1 rounded-lg border-0 outline-none cursor-pointer ${order.status === 'Paid' ? 'bg-green-100 text-green-700' : order.status === 'Pending' ? 'bg-yellow-100 text-yellow-700' : order.status === 'Shipped' ? 'bg-blue-100 text-blue-700' : 'bg-red-100 text-red-700'}`}><option value="Pending">{t.order_status_pending}</option><option value="Paid">{t.order_status_paid}</option><option value="Shipped">{t.order_status_shipped}</option><option value="Cancelled">{t.order_status_cancelled}</option></select></td>
-                <td className="px-4 py-3 text-center"><button onClick={() => handlePrintSpecificOrder(order)} className="p-1.5 text-slate-400 hover:text-sky-600 rounded hover:bg-slate-100" title="Print Receipt"><Printer size={16} /></button></td>
+                <td className="px-4 py-3 text-center flex items-center justify-center gap-2">
+                   <button onClick={() => handleEditOrder(order)} className="p-1.5 text-slate-400 hover:text-blue-600 rounded hover:bg-slate-100" title="Edit"><Edit size={16} /></button>
+                   <button onClick={() => handlePrintSpecificOrder(order)} className="p-1.5 text-slate-400 hover:text-sky-600 rounded hover:bg-slate-100" title="Print Receipt"><Printer size={16} /></button>
+                </td>
               </tr>
             ))}
             {recentSales.length === 0 && <tr><td colSpan={7} className="p-8 text-center text-slate-400">{t.order_no_data}</td></tr>}
@@ -644,7 +706,7 @@ const App: React.FC = () => {
                  <div className="flex flex-col items-end gap-1">
                    <div className="flex items-center bg-white rounded-md border border-slate-200 h-6">
                      <button onClick={() => updateQuantity(item.id, -1)} className="w-6 flex items-center justify-center hover:bg-slate-100 text-slate-500"><Minus size={10}/></button>
-                     <div className="w-8 text-center text-xs font-bold">{item.quantity}</div>
+                     <input type="number" min="1" value={item.quantity} onChange={(e) => setItemQuantity(item.id, parseInt(e.target.value) || 1)} className="w-8 text-center text-xs font-bold outline-none"/>
                      <button onClick={() => updateQuantity(item.id, 1)} className="w-6 flex items-center justify-center hover:bg-slate-100 text-slate-500"><Plus size={10}/></button>
                    </div>
                    <button onClick={() => removeFromCart(item.id)} className="text-red-400 hover:text-red-600"><Trash2 size={12}/></button>
@@ -884,7 +946,7 @@ const App: React.FC = () => {
           <div className="bg-white rounded-2xl w-full max-w-4xl p-6 shadow-xl h-[85vh] flex flex-col md:flex-row gap-6 animate-in zoom-in-95">
              {/* Left: Product Selection */}
              <div className="flex-1 flex flex-col border-r border-slate-100 md:pr-6">
-                <h3 className="font-bold text-lg mb-4 flex items-center gap-2 text-slate-700"><Package size={20}/> {t.stock_add}</h3>
+                <h3 className="font-bold text-lg mb-4 flex items-center gap-2 text-slate-700"><Package size={20}/> {editingOrder ? 'Edit Order' : t.stock_add}</h3>
                 <div className="relative mb-4">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18}/>
                   <input 
@@ -936,7 +998,7 @@ const App: React.FC = () => {
                             </div>
                             <div className="flex items-center gap-1 shrink-0">
                                {!item.isFree && <button onClick={() => updateQuantity(item.id, -1, true)} className="p-1 hover:bg-slate-100 rounded text-slate-400"><Minus size={12}/></button>}
-                               <span className="text-xs font-bold w-4 text-center">{item.quantity}</span>
+                               <input type="number" min="1" value={item.quantity} onChange={(e) => setItemQuantity(item.id, parseInt(e.target.value) || 1, true)} className="w-12 text-center text-xs font-bold border border-slate-200 rounded mx-1 p-1 outline-none focus:border-sky-500"/>
                                {!item.isFree && <button onClick={() => updateQuantity(item.id, 1, true)} className="p-1 hover:bg-slate-100 rounded text-slate-400"><Plus size={12}/></button>}
                             </div>
                          </div>
@@ -950,7 +1012,7 @@ const App: React.FC = () => {
                       </div>
                       <div className="flex gap-2">
                          <button onClick={() => setIsOrderModalOpen(false)} className="flex-1 py-2 border border-slate-200 rounded-lg text-sm font-bold text-slate-500 hover:bg-slate-50">{t.cancel}</button>
-                         <button onClick={createBackOfficeOrder} disabled={tempOrderCart.length === 0} className="flex-1 py-2 bg-sky-600 text-white rounded-lg text-sm font-bold hover:bg-sky-700 disabled:opacity-50">{t.confirm}</button>
+                         <button onClick={handleSaveOrder} disabled={tempOrderCart.length === 0} className="flex-1 py-2 bg-sky-600 text-white rounded-lg text-sm font-bold hover:bg-sky-700 disabled:opacity-50">{editingOrder ? t.save : t.confirm}</button>
                       </div>
                    </div>
                 </div>
