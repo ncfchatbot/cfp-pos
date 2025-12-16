@@ -1,4 +1,6 @@
 
+export type Language = 'th' | 'lo' | 'en';
+
 export enum Role {
   USER = 'user',
   MODEL = 'model',

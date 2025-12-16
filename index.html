@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="th">
+<html lang="lo">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <title>Sabaidee POS - ระบบจัดการร้านค้า</title>
+    <title>Sabaidee POS - ລະບົບຈັດການຮ້ານຄ້າ</title>
     
     <!-- PWA Settings -->
     <link rel="manifest" href="./manifest.json" />
@@ -23,8 +23,9 @@
         theme: {
           extend: {
             fontFamily: {
-              sans: ['Prompt', 'Noto Sans Lao', 'sans-serif'],
+              sans: ['Noto Sans Lao', 'Prompt', 'sans-serif'],
               lao: ['Noto Sans Lao', 'sans-serif'],
+              thai: ['Prompt', 'sans-serif'],
             },
             colors: {
               brand: {
@@ -41,11 +42,11 @@
     </script>
     <style>
       body {
-        font-family: 'Prompt', sans-serif;
+        font-family: 'Noto Sans Lao', 'Prompt', sans-serif;
         overscroll-behavior-y: none; /* Prevent pull-to-refresh on mobile app mode */
       }
-      .font-lao {
-        font-family: 'Noto Sans Lao', sans-serif;
+      .font-thai {
+        font-family: 'Prompt', sans-serif;
       }
       /* Custom Scrollbar */
       ::-webkit-scrollbar {

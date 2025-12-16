@@ -1,6 +1,7 @@
 import React from 'react';
-import { Store, Package, Bot, Menu, X, LogOut, Download, Upload, LayoutDashboard, Settings, ClipboardList, BarChart2, Tag } from 'lucide-react';
-import { AppMode } from '../types';
+import { Store, Package, Bot, Menu, X, LogOut, Download, Upload, LayoutDashboard, Settings, ClipboardList, BarChart2, Tag, Globe } from 'lucide-react';
+import { AppMode, Language } from '../types';
+import { translations } from '../translations';
 
 interface SidebarProps {
   currentMode: AppMode;
@@ -9,18 +10,22 @@ interface SidebarProps {
   setIsOpen: (open: boolean) => void;
   onExport: () => void;
   onImport: () => void;
+  language: Language;
+  setLanguage: (lang: Language) => void;
 }
 
-const Sidebar: React.FC<SidebarProps> = ({ currentMode, onModeChange, isOpen, setIsOpen, onExport, onImport }) => {
+const Sidebar: React.FC<SidebarProps> = ({ currentMode, onModeChange, isOpen, setIsOpen, onExport, onImport, language, setLanguage }) => {
+  const t = translations[language];
+
   const menuItems = [
-    { mode: AppMode.DASHBOARD, label: 'ภาพรวม (Dashboard)', icon: LayoutDashboard, desc: 'สรุปยอดขาย' },
-    { mode: AppMode.POS, label: 'หน้าขาย (POS)', icon: Store, desc: 'ขายหน้าร้าน' },
-    { mode: AppMode.ORDERS, label: 'รายการขาย & ขนส่ง', icon: ClipboardList, desc: 'จัดการออเดอร์/ส่งของ' },
-    { mode: AppMode.STOCK, label: 'คลังสินค้า (Stock)', icon: Package, desc: 'สินค้าคงเหลือ' },
-    { mode: AppMode.REPORTS, label: 'รายงาน (Reports)', icon: BarChart2, desc: 'วิเคราะห์ยอดขาย/กำไร' },
-    { mode: AppMode.PROMOTIONS, label: 'โปรโมชั่น', icon: Tag, desc: 'ตั้งค่าส่วนลด/ของแถม' },
-    { mode: AppMode.AI, label: 'ผู้ช่วย AI', icon: Bot, desc: 'ปรึกษาธุรกิจ' },
-    { mode: AppMode.SETTINGS, label: 'ตั้งค่าร้านค้า', icon: Settings, desc: 'ข้อมูลร้าน/โลโก้' },
+    { mode: AppMode.DASHBOARD, label: t.menu_dashboard, icon: LayoutDashboard },
+    { mode: AppMode.POS, label: t.menu_pos, icon: Store },
+    { mode: AppMode.ORDERS, label: t.menu_orders, icon: ClipboardList },
+    { mode: AppMode.STOCK, label: t.menu_stock, icon: Package },
+    { mode: AppMode.REPORTS, label: t.menu_reports, icon: BarChart2 },
+    { mode: AppMode.PROMOTIONS, label: t.menu_promotions, icon: Tag },
+    { mode: AppMode.AI, label: t.menu_ai, icon: Bot },
+    { mode: AppMode.SETTINGS, label: t.menu_settings, icon: Settings },
   ];
 
   return (
@@ -43,11 +48,33 @@ const Sidebar: React.FC<SidebarProps> = ({ currentMode, onModeChange, isOpen, se
         <div className="p-6 border-b border-slate-700 flex justify-between items-center bg-gradient-to-r from-sky-600 to-sky-900">
           <div>
             <h1 className="text-xl font-bold">Sabaidee POS</h1>
-            <p className="text-xs text-white/70">ระบบจัดการร้านค้า</p>
+            <p className="text-xs text-white/70">System V1.2</p>
           </div>
           <button onClick={() => setIsOpen(false)} className="md:hidden text-white hover:bg-white/20 p-1 rounded">
             <X size={20} />
           </button>
+        </div>
+
+        {/* Language Switcher */}
+        <div className="px-4 py-3 bg-slate-800/50 border-b border-slate-800 flex gap-2 justify-center">
+            <button 
+              onClick={() => setLanguage('lo')} 
+              className={`px-3 py-1 rounded text-xs font-bold transition-all ${language === 'lo' ? 'bg-sky-500 text-white' : 'bg-slate-700 text-slate-400 hover:text-white'}`}
+            >
+              ລາວ
+            </button>
+            <button 
+              onClick={() => setLanguage('th')} 
+              className={`px-3 py-1 rounded text-xs font-bold transition-all ${language === 'th' ? 'bg-sky-500 text-white' : 'bg-slate-700 text-slate-400 hover:text-white'}`}
+            >
+              ไทย
+            </button>
+            <button 
+              onClick={() => setLanguage('en')} 
+              className={`px-3 py-1 rounded text-xs font-bold transition-all ${language === 'en' ? 'bg-sky-500 text-white' : 'bg-slate-700 text-slate-400 hover:text-white'}`}
+            >
+              ENG
+            </button>
         </div>
 
         <nav className="flex-1 overflow-y-auto p-4 space-y-2">
@@ -68,7 +95,6 @@ const Sidebar: React.FC<SidebarProps> = ({ currentMode, onModeChange, isOpen, se
               <item.icon className="mr-3 flex-shrink-0" size={20} />
               <div className="text-left">
                 <span className="block font-medium">{item.label}</span>
-                <span className="block text-[10px] opacity-70">{item.desc}</span>
               </div>
             </button>
           ))}
@@ -79,25 +105,25 @@ const Sidebar: React.FC<SidebarProps> = ({ currentMode, onModeChange, isOpen, se
              <button 
                 onClick={onExport}
                 className="flex flex-col items-center justify-center p-2 bg-slate-800 rounded hover:bg-slate-700 text-xs text-slate-400 hover:text-white transition-colors"
-                title="Save Full Backup"
+                title={t.setting_backup}
              >
                 <Download size={16} className="mb-1"/>
-                <span>สำรองระบบ</span>
+                <span>{language === 'en' ? 'Backup' : 'Backup'}</span>
              </button>
              <button 
                 onClick={onImport}
                 className="flex flex-col items-center justify-center p-2 bg-slate-800 rounded hover:bg-slate-700 text-xs text-slate-400 hover:text-white transition-colors"
-                title="Restore Full Backup"
+                title={t.setting_restore}
              >
                 <Upload size={16} className="mb-1"/>
-                <span>กู้คืนระบบ</span>
+                <span>{language === 'en' ? 'Restore' : 'Restore'}</span>
              </button>
            </div>
           <button 
             className="w-full py-2 px-4 rounded-lg bg-slate-800 text-slate-400 hover:bg-red-900/50 hover:text-red-400 transition-colors text-sm font-medium flex items-center justify-center gap-2"
           >
             <LogOut size={16} />
-            ออกจากระบบ
+            {t.menu_logout}
           </button>
         </div>
       </aside>
