@@ -142,7 +142,7 @@ const App: React.FC = () => {
     }
   }, [editingPromotion, isPromotionModalOpen]);
 
-  // --- Promotion Logic (Same as before) ---
+  // --- Promotion Logic ---
   const calculateCartWithPromotions = (inputCart: CartItem[]): { items: CartItem[], total: number } => {
     let processedItems = inputCart.filter(item => !item.isFree).map(item => ({
       ...item,
@@ -155,13 +155,25 @@ const App: React.FC = () => {
     const newFreeItems: CartItem[] = [];
 
     processedItems = processedItems.map(item => {
-      const tieredPromo = activePromos.find(p => 
-        p.type === 'tiered_price' && 
-        p.targetSkus && 
-        (p.targetSkus.includes(item.code) || p.targetSkus.includes(item.id))
-      );
+      // Find applicable Tiered Price promotion
+      // Improved matching: Case insensitive, Empty targets = All
+      const tieredPromo = activePromos.find(p => {
+        if (p.type !== 'tiered_price') return false;
+        
+        const hasTargets = p.targetSkus && p.targetSkus.length > 0;
+        if (!hasTargets) return true; // Applies to all products if no targets specified
+
+        const itemCode = (item.code || '').toLowerCase();
+        const itemId = item.id;
+        
+        return p.targetSkus.some(sku => {
+            const s = sku.trim().toLowerCase();
+            return s === itemCode || s === itemId;
+        });
+      });
 
       if (tieredPromo && tieredPromo.tiers) {
+        // Sort tiers by minQty descending
         const sortedTiers = [...tieredPromo.tiers].sort((a, b) => b.minQty - a.minQty);
         const matchTier = sortedTiers.find(t => item.quantity >= t.minQty);
         
@@ -181,13 +193,26 @@ const App: React.FC = () => {
       return item;
     });
 
+    // Handle Buy X Get Y
     activePromos.filter(p => p.type === 'buy_x_get_y').forEach(promo => {
         processedItems.forEach(item => {
-             if (promo.targetSkus && (promo.targetSkus.includes(item.code) || promo.targetSkus.includes(item.id))) {
+             const hasTargets = promo.targetSkus && promo.targetSkus.length > 0;
+             let isMatch = !hasTargets; // Default true if empty
+             
+             if (hasTargets) {
+                 const itemCode = (item.code || '').toLowerCase();
+                 isMatch = promo.targetSkus.some(sku => {
+                    const s = sku.trim().toLowerCase();
+                    return s === itemCode || s === item.id;
+                 });
+             }
+
+             if (isMatch) {
                  if (promo.requiredQty && promo.freeSku && promo.freeQty) {
                      const sets = Math.floor(item.quantity / promo.requiredQty);
                      if (sets > 0) {
-                        const freeProduct = products.find(p => p.code === promo.freeSku);
+                        // Find free product case-insensitively
+                        const freeProduct = products.find(p => p.code.toLowerCase() === promo.freeSku!.trim().toLowerCase());
                         if (freeProduct) {
                             const promoName = language === 'en'
                               ? `${promo.name} (Buy ${promo.requiredQty} Get ${promo.freeQty})`
