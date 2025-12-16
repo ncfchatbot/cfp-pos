@@ -66,6 +66,10 @@ export const translations = {
     stock_remaining: 'ຄົງເຫຼືອ',
     stock_manage: 'ຈັດການ',
     stock_delete_confirm: 'ລຶບ?',
+
+    // Promotions
+    promo_add: 'ສ້າງໂປຣໂມຊັ່ນ',
+    promo_no_data: 'ຍັງບໍ່ມີໂປຣໂມຊັ່ນ',
     
     // Settings
     setting_title: 'ຕັ້ງຄ່າຮ້ານຄ້າ',
@@ -169,6 +173,10 @@ export const translations = {
     stock_remaining: 'คงเหลือ',
     stock_manage: 'จัดการ',
     stock_delete_confirm: 'ลบ?',
+
+    // Promotions
+    promo_add: 'สร้างโปรโมชั่น',
+    promo_no_data: 'ยังไม่มีโปรโมชั่น',
     
     // Settings
     setting_title: 'ตั้งค่าร้านค้า',
@@ -272,6 +280,10 @@ export const translations = {
     stock_remaining: 'Stock',
     stock_manage: 'Manage',
     stock_delete_confirm: 'Delete?',
+
+    // Promotions
+    promo_add: 'Create Promotion',
+    promo_no_data: 'No Promotions',
     
     // Settings
     setting_title: 'Store Settings',
