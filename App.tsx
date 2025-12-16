@@ -878,6 +878,87 @@ const App: React.FC = () => {
           </div>
       )}
 
+      {/* Create Order Modal (Back Office) */}
+      {isOrderModalOpen && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl w-full max-w-4xl p-6 shadow-xl h-[85vh] flex flex-col md:flex-row gap-6 animate-in zoom-in-95">
+             {/* Left: Product Selection */}
+             <div className="flex-1 flex flex-col border-r border-slate-100 md:pr-6">
+                <h3 className="font-bold text-lg mb-4 flex items-center gap-2 text-slate-700"><Package size={20}/> {t.stock_add}</h3>
+                <div className="relative mb-4">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18}/>
+                  <input 
+                    autoFocus
+                    value={skuSearch}
+                    onChange={e => setSkuSearch(e.target.value)}
+                    placeholder={t.pos_search_placeholder}
+                    className="w-full pl-9 pr-4 py-2 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-sky-500 text-sm"
+                  />
+                </div>
+                <div className="flex-1 overflow-y-auto space-y-2 pr-1">
+                   {products.filter(p => p.name.toLowerCase().includes(skuSearch.toLowerCase()) || p.code.toLowerCase().includes(skuSearch.toLowerCase())).map(p => (
+                      <div key={p.id} onClick={() => addToCart(p, true)} className="flex justify-between items-center p-3 border border-slate-100 rounded-xl hover:bg-sky-50 cursor-pointer transition-colors group">
+                         <div className="flex items-center gap-3">
+                            <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold ${p.color}`}>{p.name.charAt(0)}</div>
+                            <div className="min-w-0">
+                               <p className="font-bold text-sm text-slate-700 truncate">{p.name}</p>
+                               <p className="text-[10px] text-slate-400">{p.code} | Stock: {p.stock}</p>
+                            </div>
+                         </div>
+                         <div className="font-bold text-sky-600 text-sm group-hover:scale-105 transition-transform">{formatCurrency(p.price, language)}</div>
+                      </div>
+                   ))}
+                </div>
+             </div>
+
+             {/* Right: Order Info */}
+             <div className="w-full md:w-80 flex flex-col">
+                <h3 className="font-bold text-lg mb-4 flex items-center gap-2 text-slate-700"><User size={20}/> {t.order_customer}</h3>
+                <div className="space-y-3 mb-4">
+                   <input placeholder={t.order_customer} value={newOrderCustomer.name} onChange={e => setNewOrderCustomer({...newOrderCustomer, name: e.target.value})} className="w-full p-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-sky-500"/>
+                   <div className="flex gap-2">
+                      <input placeholder={t.setting_phone} value={newOrderCustomer.phone} onChange={e => setNewOrderCustomer({...newOrderCustomer, phone: e.target.value})} className="w-1/2 p-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-sky-500"/>
+                      <select value={newOrderShipping.carrier} onChange={e => setNewOrderShipping({...newOrderShipping, carrier: e.target.value as LogisticsProvider})} className="w-1/2 p-2 text-sm border border-slate-200 rounded-lg outline-none bg-white">
+                         {LOGISTICS_PROVIDERS.map(l => <option key={l.value} value={l.value}>{l.label}</option>)}
+                      </select>
+                   </div>
+                   <textarea placeholder={t.setting_address} rows={2} value={newOrderCustomer.address} onChange={e => setNewOrderCustomer({...newOrderCustomer, address: e.target.value})} className="w-full p-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-sky-500 resize-none"/>
+                </div>
+
+                <div className="flex-1 bg-slate-50 rounded-xl p-3 border border-slate-100 flex flex-col min-h-0">
+                   <h4 className="font-bold text-xs text-slate-500 uppercase mb-2">{t.pos_items} ({tempOrderCart.length})</h4>
+                   <div className="flex-1 overflow-y-auto space-y-2 pr-1">
+                      {calculatedTempOrderCart.items.map((item, idx) => (
+                         <div key={`${item.id}-${idx}`} className="bg-white p-2 rounded-lg border border-slate-100 flex justify-between items-center shadow-sm">
+                            <div className="min-w-0 flex-1 mr-2">
+                               <p className="text-xs font-bold truncate">{item.name} {item.isFree && '(Free)'}</p>
+                               <p className="text-[10px] text-slate-400">{item.quantity} x {formatCurrency(item.price, language)}</p>
+                            </div>
+                            <div className="flex items-center gap-1 shrink-0">
+                               {!item.isFree && <button onClick={() => updateQuantity(item.id, -1, true)} className="p-1 hover:bg-slate-100 rounded text-slate-400"><Minus size={12}/></button>}
+                               <span className="text-xs font-bold w-4 text-center">{item.quantity}</span>
+                               {!item.isFree && <button onClick={() => updateQuantity(item.id, 1, true)} className="p-1 hover:bg-slate-100 rounded text-slate-400"><Plus size={12}/></button>}
+                            </div>
+                         </div>
+                      ))}
+                      {tempOrderCart.length === 0 && <p className="text-center text-xs text-slate-400 py-8">{t.pos_empty_cart}</p>}
+                   </div>
+                   <div className="mt-3 pt-3 border-t border-slate-200">
+                      <div className="flex justify-between font-bold text-lg mb-3">
+                         <span>{t.pos_net_total}</span>
+                         <span className="text-sky-600">{formatCurrency(calculatedTempOrderCart.total, language)}</span>
+                      </div>
+                      <div className="flex gap-2">
+                         <button onClick={() => setIsOrderModalOpen(false)} className="flex-1 py-2 border border-slate-200 rounded-lg text-sm font-bold text-slate-500 hover:bg-slate-50">{t.cancel}</button>
+                         <button onClick={createBackOfficeOrder} disabled={tempOrderCart.length === 0} className="flex-1 py-2 bg-sky-600 text-white rounded-lg text-sm font-bold hover:bg-sky-700 disabled:opacity-50">{t.confirm}</button>
+                      </div>
+                   </div>
+                </div>
+             </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 };
