@@ -26,7 +26,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
         <div className={`
           flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center mt-1
           ${isModel 
-            ? isError ? 'bg-red-100 text-red-600' : 'bg-gradient-to-br from-thai-500 to-purple-600 text-white' 
+            ? isError ? 'bg-red-100 text-red-600' : 'bg-gradient-to-br from-sky-500 to-purple-600 text-white' 
             : 'bg-slate-200 text-slate-600'}
           ${isModel ? 'mr-3' : 'ml-3'}
         `}>
@@ -40,7 +40,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
             ? isError 
               ? 'bg-red-50 border border-red-100 text-red-800 rounded-tl-none' 
               : 'bg-white border border-slate-100 text-slate-800 rounded-tl-none' 
-            : 'bg-thai-600 text-white rounded-tr-none'}
+            : 'bg-sky-600 text-white rounded-tr-none'}
         `}>
           {isModel ? (
             <div className="markdown-body prose prose-sm max-w-none prose-p:my-1 prose-headings:my-2 prose-ul:my-1">
@@ -54,7 +54,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
           {isModel && !isError && (
              <button 
                onClick={handleCopy}
-               className="absolute bottom-2 right-2 p-1 text-slate-400 hover:text-thai-600 opacity-0 group-hover:opacity-100 transition-opacity bg-white/80 rounded"
+               className="absolute bottom-2 right-2 p-1 text-slate-400 hover:text-sky-600 opacity-0 group-hover:opacity-100 transition-opacity bg-white/80 rounded"
                title="Copy text"
              >
                {copied ? <Check size={14} /> : <Copy size={14} />}

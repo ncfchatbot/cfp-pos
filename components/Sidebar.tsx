@@ -40,7 +40,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentMode, onModeChange, isOpen, se
         transition-transform duration-300 ease-in-out
         ${isOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
       `}>
-        <div className="p-6 border-b border-slate-700 flex justify-between items-center bg-gradient-to-r from-brand-600 to-brand-900">
+        <div className="p-6 border-b border-slate-700 flex justify-between items-center bg-gradient-to-r from-sky-600 to-sky-900">
           <div>
             <h1 className="text-xl font-bold">Sabaidee POS</h1>
             <p className="text-xs text-white/70">ระบบจัดการร้านค้า</p>
@@ -61,7 +61,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentMode, onModeChange, isOpen, se
               className={`
                 w-full flex items-center p-3 rounded-lg transition-all duration-200
                 ${currentMode === item.mode 
-                  ? 'bg-brand-600 text-white shadow-lg' 
+                  ? 'bg-sky-600 text-white shadow-lg' 
                   : 'hover:bg-slate-800 text-slate-400 hover:text-white'}
               `}
             >
