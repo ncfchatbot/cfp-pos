@@ -35,6 +35,7 @@ export interface Product {
   category: string;
   stock: number;
   color: string;
+  imageUrl?: string; // URL รูปภาพสินค้า
 }
 
 export interface CartItem extends Product {

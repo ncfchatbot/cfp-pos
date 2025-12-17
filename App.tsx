@@ -24,7 +24,7 @@ const formatCurrency = (amount: number, lang: Language) => {
 };
 
 const INITIAL_PRODUCTS: Product[] = [
-  { id: '1', code: 'FD001', name: 'ຕຳໝາກຫຸ່ງ (Papaya Salad)', price: 25000, cost: 15000, category: 'Food', stock: 50, color: 'bg-orange-100 text-orange-800' },
+  { id: '1', code: 'FD001', name: 'ຕຳໝາກຫຸ່ງ (Papaya Salad)', price: 25000, cost: 15000, category: 'Food', stock: 50, color: 'bg-orange-100 text-orange-800', imageUrl: 'https://images.unsplash.com/photo-1563897539633-7374c276c212?w=500&q=80' },
   { id: '2', code: 'BV001', name: 'ເບຍລາວ (Beer Lao)', price: 15000, cost: 12000, category: 'Drink', stock: 120, color: 'bg-yellow-100 text-yellow-800' },
 ];
 
@@ -92,6 +92,7 @@ const App: React.FC = () => {
   // --- Modals & Temp States ---
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [isProductModalOpen, setIsProductModalOpen] = useState(false);
+  const [productImagePreview, setProductImagePreview] = useState<string | null>(null);
   
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'qr'>('cash');
@@ -123,6 +124,7 @@ const App: React.FC = () => {
   const productCsvRef = useRef<HTMLInputElement>(null);
   const salesCsvRef = useRef<HTMLInputElement>(null);
   const logoInputRef = useRef<HTMLInputElement>(null);
+  const productImageInputRef = useRef<HTMLInputElement>(null);
 
   // AI
   const [messages, setMessages] = useState<Message[]>([]);
@@ -329,6 +331,21 @@ const App: React.FC = () => {
       const reader = new FileReader(); reader.onloadend = () => setStoreProfile(p => ({ ...p, logoUrl: reader.result as string })); reader.readAsDataURL(file);
     }
   };
+  const handleProductImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+        if (file.size > 800000) { // Limit ~800KB
+             alert('File is too large! Please select image under 800KB.');
+             return;
+        }
+        const reader = new FileReader();
+        reader.onloadend = () => {
+            setProductImagePreview(reader.result as string);
+        };
+        reader.readAsDataURL(file);
+    }
+  };
+
   const handleExportData = () => {
     const blob = new Blob([JSON.stringify({ products, recentSales, storeProfile, promotions }, null, 2)], { type: 'application/json' });
     const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = `backup-${new Date().toISOString().slice(0,10)}.json`; document.body.appendChild(link); link.click();
@@ -460,9 +477,19 @@ const App: React.FC = () => {
   };
   const handleSaveProduct = (e: React.FormEvent) => {
     e.preventDefault(); const formData = new FormData(e.target as HTMLFormElement);
-    const newProduct: Product = { id: editingProduct ? editingProduct.id : uuidv4(), code: formData.get('code') as string, name: formData.get('name') as string, price: Number(formData.get('price')), cost: Number(formData.get('cost')), category: formData.get('category') as string, stock: Number(formData.get('stock')), color: editingProduct ? editingProduct.color : `bg-${['orange','blue','green','purple','pink'][Math.floor(Math.random()*5)]}-100 text-${['orange','blue','green','purple','pink'][Math.floor(Math.random()*5)]}-800` };
+    const newProduct: Product = { 
+        id: editingProduct ? editingProduct.id : uuidv4(), 
+        code: formData.get('code') as string, 
+        name: formData.get('name') as string, 
+        price: Number(formData.get('price')), 
+        cost: Number(formData.get('cost')), 
+        category: formData.get('category') as string, 
+        stock: Number(formData.get('stock')), 
+        color: editingProduct ? editingProduct.color : `bg-${['orange','blue','green','purple','pink'][Math.floor(Math.random()*5)]}-100 text-${['orange','blue','green','purple','pink'][Math.floor(Math.random()*5)]}-800`,
+        imageUrl: productImagePreview || undefined 
+    };
     if (editingProduct) { setProducts(prev => prev.map(p => p.id === editingProduct.id ? newProduct : p)); } else { setProducts(prev => [...prev, newProduct]); }
-    setIsProductModalOpen(false); setEditingProduct(null);
+    setIsProductModalOpen(false); setEditingProduct(null); setProductImagePreview(null);
   };
   const handleSavePromotion = (e: React.FormEvent) => {
       e.preventDefault(); const formData = new FormData(e.target as HTMLFormElement); const type = formData.get('type') as PromotionType;
@@ -691,9 +718,13 @@ const App: React.FC = () => {
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
               {filteredProducts.map(product => (
                 <button key={product.id} onClick={() => addToCart(product)} className="bg-white p-3 rounded-xl border border-slate-200 shadow-sm hover:shadow-md hover:border-sky-300 transition-all text-left flex flex-col h-full group relative overflow-hidden">
-                  <div className={`w-full aspect-square rounded-lg mb-2 ${product.color} flex items-center justify-center text-3xl font-bold relative`}>
-                    {product.name.charAt(0)}
-                    <span className="absolute top-1 right-1 text-[9px] bg-white/80 px-1 rounded font-mono text-slate-500">{product.code}</span>
+                  <div className={`w-full aspect-square rounded-lg mb-2 ${product.color} flex items-center justify-center text-3xl font-bold relative overflow-hidden group-hover:opacity-90 transition-opacity`}>
+                    {product.imageUrl ? (
+                        <img src={product.imageUrl} alt={product.name} className="w-full h-full object-cover" />
+                    ) : (
+                        product.name.charAt(0)
+                    )}
+                    <span className="absolute top-1 right-1 text-[9px] bg-white/90 backdrop-blur-sm px-1.5 py-0.5 rounded font-mono text-slate-600 shadow-sm z-10">{product.code}</span>
                   </div>
                   <div className="flex-1 flex flex-col min-w-0">
                     <h3 className="font-semibold text-slate-800 text-xs sm:text-sm line-clamp-2 leading-tight mb-1 h-8 sm:h-9" title={product.name}>{product.name}</h3>
@@ -715,7 +746,9 @@ const App: React.FC = () => {
            <div className="flex-1 overflow-y-auto p-3 space-y-2">
              {cartItems.map((item, idx) => (
                 <div key={`${item.id}-${idx}`} className={`flex gap-3 bg-slate-50 p-2 rounded-lg border border-slate-100 ${item.isFree ? 'border-sky-200 bg-sky-50' : ''}`}>
-                 <div className={`w-10 h-10 rounded-md flex-shrink-0 flex items-center justify-center text-sm ${item.color}`}>{item.name.charAt(0)}</div>
+                 <div className={`w-10 h-10 rounded-md flex-shrink-0 flex items-center justify-center text-sm ${item.color} overflow-hidden`}>
+                     {item.imageUrl ? <img src={item.imageUrl} className="w-full h-full object-cover"/> : item.name.charAt(0)}
+                 </div>
                  <div className="flex-1 min-w-0 flex flex-col justify-center">
                     <h4 className="text-xs font-bold text-slate-700 truncate flex items-center gap-1">
                         {item.name} 
@@ -819,12 +852,12 @@ const App: React.FC = () => {
             <div className="p-4 md:p-6 h-full overflow-y-auto bg-slate-50/50">
                <div className="flex justify-between items-center mb-6">
                  <h2 className="text-xl font-bold text-slate-800">{t.stock_title}</h2>
-                 <button onClick={() => { setEditingProduct(null); setIsProductModalOpen(true); }} className="bg-sky-600 text-white px-3 py-2 rounded-lg shadow-sm hover:bg-sky-700 flex gap-2 text-sm"><Plus size={16}/> {t.stock_add}</button>
+                 <button onClick={() => { setEditingProduct(null); setProductImagePreview(null); setIsProductModalOpen(true); }} className="bg-sky-600 text-white px-3 py-2 rounded-lg shadow-sm hover:bg-sky-700 flex gap-2 text-sm"><Plus size={16}/> {t.stock_add}</button>
                </div>
                <div className="bg-white rounded-xl border border-slate-100 shadow-sm overflow-hidden overflow-x-auto">
                  <table className="w-full text-left text-sm whitespace-nowrap">
                    <thead className="bg-slate-50 border-b border-slate-100 text-slate-500"><tr><th className="px-4 py-3 font-bold text-xs uppercase tracking-wider">{t.stock_code}</th><th className="px-4 py-3 font-bold text-xs uppercase tracking-wider">{t.stock_name}</th><th className="px-4 py-3 font-bold text-xs uppercase tracking-wider text-right">{t.stock_cost}</th><th className="px-4 py-3 font-bold text-xs uppercase tracking-wider text-right">{t.stock_price}</th><th className="px-4 py-3 font-bold text-xs uppercase tracking-wider text-right">{t.stock_remaining}</th><th className="px-4 py-3 font-bold text-xs uppercase tracking-wider text-center">{t.stock_manage}</th></tr></thead>
-                   <tbody className="divide-y divide-slate-50">{products.map(p=>(<tr key={p.id} className="hover:bg-slate-50"><td className="px-4 py-3 text-slate-500 font-mono text-xs">{p.code}</td><td className="px-4 py-3 font-medium text-slate-800">{p.name}</td><td className="px-4 py-3 text-right text-slate-400">{formatCurrency(p.cost || 0, language)}</td><td className="px-4 py-3 text-right font-bold text-slate-800">{formatCurrency(p.price, language)}</td><td className="px-4 py-3 text-right">{p.stock}</td><td className="px-4 py-3 text-center"><button onClick={() => { setEditingProduct(p); setIsProductModalOpen(true); }} className="p-1.5 text-slate-400 hover:text-blue-600 rounded hover:bg-slate-100"><Edit size={14}/></button><button onClick={()=>{if(confirm(t.stock_delete_confirm))setProducts(prev=>prev.filter(x=>x.id!==p.id))}} className="p-1.5 text-slate-400 hover:text-red-500 rounded hover:bg-slate-100"><Trash2 size={14}/></button></td></tr>))}</tbody>
+                   <tbody className="divide-y divide-slate-50">{products.map(p=>(<tr key={p.id} className="hover:bg-slate-50"><td className="px-4 py-3 text-slate-500 font-mono text-xs">{p.code}</td><td className="px-4 py-3 font-medium text-slate-800 flex items-center gap-3"><div className={`w-8 h-8 rounded-lg ${p.color} flex items-center justify-center overflow-hidden flex-shrink-0`}>{p.imageUrl ? <img src={p.imageUrl} className="w-full h-full object-cover"/> : p.name.charAt(0)}</div>{p.name}</td><td className="px-4 py-3 text-right text-slate-400">{formatCurrency(p.cost || 0, language)}</td><td className="px-4 py-3 text-right font-bold text-slate-800">{formatCurrency(p.price, language)}</td><td className="px-4 py-3 text-right">{p.stock}</td><td className="px-4 py-3 text-center"><button onClick={() => { setEditingProduct(p); setProductImagePreview(p.imageUrl || null); setIsProductModalOpen(true); }} className="p-1.5 text-slate-400 hover:text-blue-600 rounded hover:bg-slate-100"><Edit size={14}/></button><button onClick={()=>{if(confirm(t.stock_delete_confirm))setProducts(prev=>prev.filter(x=>x.id!==p.id))}} className="p-1.5 text-slate-400 hover:text-red-500 rounded hover:bg-slate-100"><Trash2 size={14}/></button></td></tr>))}</tbody>
                  </table>
                </div>
             </div>
@@ -840,6 +873,29 @@ const App: React.FC = () => {
           <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-xl animate-in zoom-in-95">
             <h3 className="text-lg font-bold mb-4">{editingProduct ? t.stock_manage : t.stock_add}</h3>
             <form onSubmit={handleSaveProduct} className="space-y-4">
+              <div className="flex justify-center mb-4">
+                  <div 
+                    className="w-24 h-24 rounded-xl bg-slate-100 border-2 border-dashed border-slate-300 flex items-center justify-center overflow-hidden relative group cursor-pointer hover:border-sky-500 transition-colors"
+                    onClick={() => productImageInputRef.current?.click()}
+                  >
+                      {productImagePreview ? (
+                          <img src={productImagePreview} className="w-full h-full object-cover" />
+                      ) : (
+                          <ImagePlus size={24} className="text-slate-400" />
+                      )}
+                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-xs font-bold">
+                          Change
+                      </div>
+                  </div>
+                  <input 
+                     type="file" 
+                     ref={productImageInputRef} 
+                     onChange={handleProductImageChange} 
+                     className="hidden" 
+                     accept="image/*" 
+                  />
+              </div>
+
               <div className="grid grid-cols-3 gap-3">
                  <div className="col-span-1"><label className="text-xs font-bold text-slate-500 mb-1 block">{t.stock_code}</label><input name="code" required placeholder="A001" defaultValue={editingProduct?.code} className="w-full p-2.5 border border-slate-200 rounded-lg outline-none focus:border-sky-500 text-sm"/></div>
                  <div className="col-span-2"><label className="text-xs font-bold text-slate-500 mb-1 block">{t.stock_name}</label><input name="name" required placeholder="Name" defaultValue={editingProduct?.name} className="w-full p-2.5 border border-slate-200 rounded-lg outline-none focus:border-sky-500 text-sm"/></div>
@@ -986,7 +1042,7 @@ const App: React.FC = () => {
                    {products.filter(p => p.name.toLowerCase().includes(skuSearch.toLowerCase()) || p.code.toLowerCase().includes(skuSearch.toLowerCase())).map(p => (
                       <div key={p.id} onClick={() => addToCart(p, true)} className="flex justify-between items-center p-3 border border-slate-100 rounded-xl hover:bg-sky-50 cursor-pointer transition-colors group">
                          <div className="flex items-center gap-3">
-                            <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold ${p.color}`}>{p.name.charAt(0)}</div>
+                            <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold ${p.color} overflow-hidden`}>{p.imageUrl ? <img src={p.imageUrl} className="w-full h-full object-cover"/> : p.name.charAt(0)}</div>
                             <div className="min-w-0">
                                <p className="font-bold text-sm text-slate-700 truncate">{p.name}</p>
                                <p className="text-[10px] text-slate-400">{p.code} | Stock: {p.stock}</p>
