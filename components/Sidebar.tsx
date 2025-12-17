@@ -47,7 +47,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentMode, onModeChange, isOpen, se
       `}>
         <div className="p-6 border-b border-slate-700 flex justify-between items-center bg-gradient-to-r from-sky-600 to-sky-900">
           <div>
-            <h1 className="text-xl font-bold">Sabaidee POS</h1>
+            <h1 className="text-xl font-bold">Coffee Please POS</h1>
             <p className="text-xs text-white/70">System V1.2</p>
           </div>
           <button onClick={() => setIsOpen(false)} className="md:hidden text-white hover:bg-white/20 p-1 rounded">

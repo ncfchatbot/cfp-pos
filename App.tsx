@@ -29,7 +29,7 @@ const INITIAL_PRODUCTS: Product[] = [
 ];
 
 const INITIAL_PROFILE: StoreProfile = {
-  name: "Sabaidee POS",
+  name: "Coffee Please POS",
   address: "Vientiane, Laos",
   phone: "020-5555-9999",
   logoUrl: null
@@ -431,7 +431,7 @@ const App: React.FC = () => {
     const order: SaleRecord = { 
         id: uuidv4().slice(0, 8), 
         items: [...items], 
-        total: finalTotal,
+        total: finalTotal, 
         subtotal: subtotal,
         discountValue: discountAmount > 0 ? manualDiscount.value : undefined,
         discountType: discountAmount > 0 ? manualDiscount.type : undefined,
@@ -917,7 +917,7 @@ const App: React.FC = () => {
                     {Object.entries(paymentStats).map(([method, amount]) => (
                         <div key={method} className="flex justify-between items-center">
                             <span className="capitalize text-sm font-medium text-slate-600">{method}</span>
-                            <span className="font-bold text-slate-800">{formatCurrency(amount, language)}</span>
+                            <span className="font-bold text-slate-800">{formatCurrency(amount as number, language)}</span>
                         </div>
                     ))}
                      {Object.keys(paymentStats).length === 0 && <p className="text-sm text-slate-400">No data available</p>}

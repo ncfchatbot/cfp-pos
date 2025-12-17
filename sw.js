@@ -1,5 +1,5 @@
 // sw.js - Basic Service Worker for PWA
-const CACHE_NAME = 'sabaidee-pos-v1';
+const CACHE_NAME = 'coffee-please-pos-v1';
 const urlsToCache = [
   './',
   './index.html',
