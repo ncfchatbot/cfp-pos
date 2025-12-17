@@ -39,6 +39,7 @@ export const translations = {
     pos_empty_cart: 'ເລືອກສິນຄ້າຢູ່ຊ້າຍມື',
     pos_stock: 'ຄັງ',
     pos_free: 'FREE',
+    pos_discount: 'ສ່ວນຫຼຸດທ້າຍບິນ',
     
     // Orders
     order_title: 'ລາຍການອໍເດີ້',
@@ -66,6 +67,7 @@ export const translations = {
     stock_remaining: 'ຄົງເຫຼືອ',
     stock_manage: 'ຈັດການ',
     stock_delete_confirm: 'ລຶບ?',
+    stock_image: 'ຮູບພາບສິນຄ້າ',
 
     // Promotions
     promo_add: 'ສ້າງໂປຣໂມຊັ່ນ',
@@ -85,6 +87,7 @@ export const translations = {
     setting_danger: 'ພື້ນທີ່ອັນຕະລາຍ',
     setting_factory_reset: 'ຄືນຄ່າໂຮງງານ',
     setting_clear_all: 'ລຶບຂໍ້ມູນທັງໝົດ',
+    setting_clear_sales: 'ລ້າງປະຫວັດການຂາຍ',
     
     // Common
     save: 'ບັນທຶກ',
@@ -146,6 +149,7 @@ export const translations = {
     pos_empty_cart: 'เลือกสินค้าฝั่งซ้าย',
     pos_stock: 'คลัง',
     pos_free: 'แถม',
+    pos_discount: 'ส่วนลดท้ายบิล',
     
     // Orders
     order_title: 'รายการออเดอร์',
@@ -173,6 +177,7 @@ export const translations = {
     stock_remaining: 'คงเหลือ',
     stock_manage: 'จัดการ',
     stock_delete_confirm: 'ลบ?',
+    stock_image: 'รูปสินค้า',
 
     // Promotions
     promo_add: 'สร้างโปรโมชั่น',
@@ -192,6 +197,7 @@ export const translations = {
     setting_danger: 'พื้นที่อันตราย',
     setting_factory_reset: 'คืนค่าโรงงาน',
     setting_clear_all: 'ลบข้อมูลทั้งหมด',
+    setting_clear_sales: 'ล้างประวัติการขาย',
     
     // Common
     save: 'บันทึก',
@@ -253,6 +259,7 @@ export const translations = {
     pos_empty_cart: 'Select items to add',
     pos_stock: 'Stock',
     pos_free: 'FREE',
+    pos_discount: 'Bill Discount',
     
     // Orders
     order_title: 'Order List',
@@ -280,6 +287,7 @@ export const translations = {
     stock_remaining: 'Stock',
     stock_manage: 'Manage',
     stock_delete_confirm: 'Delete?',
+    stock_image: 'Product Image',
 
     // Promotions
     promo_add: 'Create Promotion',
@@ -299,6 +307,7 @@ export const translations = {
     setting_danger: 'Danger Zone',
     setting_factory_reset: 'Factory Reset',
     setting_clear_all: 'Clear All Data',
+    setting_clear_sales: 'Clear Sales History',
     
     // Common
     save: 'Save',

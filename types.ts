@@ -51,7 +51,11 @@ export type OrderStatus = 'Pending' | 'Paid' | 'Shipped' | 'Cancelled';
 export interface SaleRecord {
   id: string;
   items: CartItem[];
-  total: number;
+  total: number; // ยอดสุทธิหลังหักส่วนลดแล้ว (Net Total)
+  subtotal?: number; // ยอดรวมสินค้าก่อนหักส่วนลดท้ายบิล
+  discountValue?: number; // มูลค่าส่วนลดที่กรอก
+  discountType?: 'amount' | 'percent'; // ประเภทส่วนลด
+  
   date: string;
   timestamp?: number; // For easier date filtering
   paymentMethod: 'cash' | 'qr' | 'transfer';

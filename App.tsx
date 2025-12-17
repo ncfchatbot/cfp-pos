@@ -82,6 +82,7 @@ const App: React.FC = () => {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
+  const [manualDiscount, setManualDiscount] = useState<{ type: 'amount' | 'percent', value: number }>({ type: 'amount', value: 0 });
   
   // Persistence
   useEffect(() => { localStorage.setItem('pos_products', JSON.stringify(products)); }, [products]);
@@ -362,6 +363,17 @@ const App: React.FC = () => {
   const handleResetToDefaults = () => { if (confirm(t.confirm + '?')) { localStorage.clear(); window.location.reload(); } };
   const handleClearAllData = () => { if (confirm(t.confirm + '?')) { if (confirm('Permanently delete?')) { localStorage.setItem('pos_products', JSON.stringify([])); localStorage.setItem('pos_sales', JSON.stringify([])); localStorage.setItem('pos_promotions', JSON.stringify([])); localStorage.setItem('pos_profile', JSON.stringify({ name: "My Store", address: "", phone: "", logoUrl: null })); window.location.reload(); } } };
 
+  const handleClearSalesData = () => {
+    if (confirm(t.confirm + '? (' + t.setting_clear_sales + ')')) {
+        setRecentSales([]);
+        localStorage.setItem('pos_sales', JSON.stringify([]));
+        // Also clear cart just in case
+        setCart([]);
+        setManualDiscount({ type: 'amount', value: 0 });
+        alert(t.success);
+    }
+  };
+
   // --- Logic ---
   const addToCart = (product: Product, isTemp = false) => {
     const setter = isTemp ? setTempOrderCart : setCart;
@@ -387,9 +399,32 @@ const App: React.FC = () => {
     }));
   };
   const processPayment = () => {
-    const { items, total } = calculatedCart;
-    const order: SaleRecord = { id: uuidv4().slice(0, 8), items: [...items], total: total, date: new Date().toLocaleString('th-TH'), timestamp: Date.now(), paymentMethod, status: 'Paid', shippingCarrier: 'None', customerName: 'Walk-in' };
-    finalizeOrder(order); setCart([]); setIsPaymentModalOpen(false); setShowReceipt(true);
+    const { items, total: subtotal } = calculatedCart;
+    let discountAmount = 0;
+    if (manualDiscount.value > 0) {
+        if (manualDiscount.type === 'percent') {
+            discountAmount = (subtotal * manualDiscount.value) / 100;
+        } else {
+            discountAmount = manualDiscount.value;
+        }
+    }
+    const finalTotal = Math.max(0, subtotal - discountAmount);
+
+    const order: SaleRecord = { 
+        id: uuidv4().slice(0, 8), 
+        items: [...items], 
+        total: finalTotal,
+        subtotal: subtotal,
+        discountValue: discountAmount > 0 ? manualDiscount.value : undefined,
+        discountType: discountAmount > 0 ? manualDiscount.type : undefined,
+        date: new Date().toLocaleString('th-TH'), 
+        timestamp: Date.now(), 
+        paymentMethod, 
+        status: 'Paid', 
+        shippingCarrier: 'None', 
+        customerName: 'Walk-in' 
+    };
+    finalizeOrder(order); setCart([]); setManualDiscount({ type: 'amount', value: 0 }); setIsPaymentModalOpen(false); setShowReceipt(true);
   };
 
   const handleEditOrder = (order: SaleRecord) => {
@@ -501,6 +536,169 @@ const App: React.FC = () => {
   };
 
   // --- Renderers ---
+  const renderDashboard = () => {
+    // Basic stats calculation
+    const totalSales = recentSales.filter(s => s.status !== 'Cancelled').reduce((sum, s) => sum + s.total, 0);
+    const totalOrders = recentSales.filter(s => s.status !== 'Cancelled').length;
+    const lowStockItems = products.filter(p => p.stock < 10);
+    
+    // Calculate profit
+    const totalCost = recentSales
+        .filter(s => s.status !== 'Cancelled')
+        .reduce((sum, sale) => {
+            const saleCost = sale.items.reduce((c, item) => c + ((item.cost || 0) * item.quantity), 0);
+            return sum + saleCost;
+        }, 0);
+    const profit = totalSales - totalCost;
+
+    return (
+      <div className="p-4 md:p-6 h-full overflow-y-auto bg-slate-50/50">
+        <h2 className="text-xl font-bold text-slate-800 mb-6 flex items-center gap-2">
+            <LayoutDashboard className="text-sky-600" /> {t.dash_title}
+        </h2>
+        
+        {/* Stats Cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+            <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-100">
+                <div className="flex justify-between items-start mb-2">
+                    <div className="p-2 bg-blue-50 rounded-lg text-blue-600"><DollarSign size={20} /></div>
+                </div>
+                <p className="text-slate-500 text-xs mb-1">{t.dash_sales_month}</p>
+                <h3 className="text-2xl font-bold text-slate-800">{formatCurrency(totalSales, language)}</h3>
+            </div>
+            <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-100">
+                <div className="flex justify-between items-start mb-2">
+                    <div className="p-2 bg-purple-50 rounded-lg text-purple-600"><ClipboardList size={20} /></div>
+                </div>
+                <p className="text-slate-500 text-xs mb-1">{t.dash_total_orders}</p>
+                <h3 className="text-2xl font-bold text-slate-800">{totalOrders}</h3>
+            </div>
+            <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-100">
+                <div className="flex justify-between items-start mb-2">
+                    <div className="p-2 bg-green-50 rounded-lg text-green-600"><Wallet size={20} /></div>
+                </div>
+                <p className="text-slate-500 text-xs mb-1">{t.dash_profit}</p>
+                <h3 className="text-2xl font-bold text-green-600">{formatCurrency(profit, language)}</h3>
+            </div>
+             <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-100">
+                <div className="flex justify-between items-start mb-2">
+                    <div className="p-2 bg-orange-50 rounded-lg text-orange-600"><AlertTriangle size={20} /></div>
+                    {lowStockItems.length > 0 && <span className="text-xs font-bold bg-red-100 text-red-700 px-2 py-1 rounded-full">{lowStockItems.length}</span>}
+                </div>
+                <p className="text-slate-500 text-xs mb-1">{t.dash_low_stock}</p>
+                <h3 className="text-2xl font-bold text-slate-800">{lowStockItems.length} Items</h3>
+            </div>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Low Stock Alert */}
+            <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-100">
+                <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2"><Package size={18} /> {t.dash_low_stock}</h3>
+                <div className="space-y-3">
+                    {lowStockItems.slice(0, 5).map(p => (
+                        <div key={p.id} className="flex justify-between items-center p-2 hover:bg-slate-50 rounded-lg border border-transparent hover:border-slate-100 transition-colors">
+                            <div className="flex items-center gap-3">
+                                <div className={`w-10 h-10 rounded-lg ${p.color} flex items-center justify-center text-xs font-bold overflow-hidden`}>
+                                    {p.imageUrl ? <img src={p.imageUrl} className="w-full h-full object-cover"/> : p.code}
+                                </div>
+                                <div>
+                                    <p className="text-sm font-bold text-slate-700">{p.name}</p>
+                                    <p className="text-xs text-slate-400">Stock: {p.stock}</p>
+                                </div>
+                            </div>
+                            <button onClick={() => {setEditingProduct(p); setIsProductModalOpen(true);}} className="text-xs font-bold text-sky-600 hover:underline">{t.stock_manage}</button>
+                        </div>
+                    ))}
+                    {lowStockItems.length === 0 && <div className="text-center py-8 text-slate-400 text-sm">{t.dash_stock_ok}</div>}
+                </div>
+            </div>
+
+            {/* Recent Orders (Small) */}
+             <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-100">
+                <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2"><History size={18} /> Recent Activity</h3>
+                 <div className="space-y-3">
+                    {recentSales.slice(0, 5).map(s => (
+                        <div key={s.id} className="flex justify-between items-center p-2 border-b border-slate-50 last:border-0">
+                             <div>
+                                <p className="text-sm font-bold text-slate-700">Order #{s.id}</p>
+                                <p className="text-xs text-slate-400">{s.date} • {s.items.length} items</p>
+                             </div>
+                             <div className="text-right">
+                                <p className="text-sm font-bold text-slate-800">{formatCurrency(s.total, language)}</p>
+                                <span className={`text-[10px] px-2 py-0.5 rounded-full ${
+                                    s.status === 'Paid' ? 'bg-green-100 text-green-700' : 
+                                    s.status === 'Cancelled' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'
+                                }`}>{s.status}</span>
+                             </div>
+                        </div>
+                    ))}
+                    {recentSales.length === 0 && <div className="text-center py-8 text-slate-400 text-sm">{t.order_no_data}</div>}
+                 </div>
+            </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderOrders = () => {
+    return (
+      <div className="p-4 md:p-6 h-full overflow-y-auto bg-slate-50/50">
+        <div className="flex justify-between items-center mb-6">
+           <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2"><ClipboardList className="text-sky-600"/> {t.order_title}</h2>
+           <button onClick={() => { setEditingOrder(null); setTempOrderCart([]); setSkuSearch(''); setIsOrderModalOpen(true); }} className="bg-sky-600 text-white px-3 py-2 rounded-lg shadow-sm hover:bg-sky-700 flex gap-2 text-sm font-bold items-center"><Plus size={16}/> {t.order_create}</button>
+        </div>
+
+        <div className="bg-white rounded-xl border border-slate-100 shadow-sm overflow-hidden overflow-x-auto">
+             <table className="w-full text-left text-sm whitespace-nowrap">
+                 <thead className="bg-slate-50 border-b border-slate-100 text-slate-500">
+                     <tr>
+                         <th className="px-4 py-3 font-bold text-xs uppercase">{t.order_id}</th>
+                         <th className="px-4 py-3 font-bold text-xs uppercase">{t.order_date}</th>
+                         <th className="px-4 py-3 font-bold text-xs uppercase">{t.order_customer}</th>
+                         <th className="px-4 py-3 font-bold text-xs uppercase text-right">{t.order_total}</th>
+                         <th className="px-4 py-3 font-bold text-xs uppercase text-center">{t.order_status}</th>
+                         <th className="px-4 py-3 font-bold text-xs uppercase text-center">{t.order_action}</th>
+                     </tr>
+                 </thead>
+                 <tbody className="divide-y divide-slate-50">
+                    {recentSales.map(order => (
+                        <tr key={order.id} className="hover:bg-slate-50">
+                            <td className="px-4 py-3 font-mono text-slate-600">#{order.id}</td>
+                            <td className="px-4 py-3 text-slate-500">{order.date}</td>
+                            <td className="px-4 py-3">
+                                <div className="font-bold text-slate-700">{order.customerName}</div>
+                                {order.shippingCarrier && order.shippingCarrier !== 'None' && <div className="text-[10px] text-sky-600 flex items-center gap-1"><Truck size={10}/> {order.shippingCarrier}</div>}
+                            </td>
+                            <td className="px-4 py-3 text-right font-bold text-slate-800">{formatCurrency(order.total, language)}</td>
+                            <td className="px-4 py-3 text-center">
+                                <select 
+                                    value={order.status} 
+                                    onChange={(e) => updateOrderStatus(order.id, e.target.value as OrderStatus)}
+                                    className={`text-xs font-bold px-2 py-1 rounded-full border-none outline-none cursor-pointer ${
+                                        order.status === 'Paid' ? 'bg-green-100 text-green-700' :
+                                        order.status === 'Shipped' ? 'bg-blue-100 text-blue-700' :
+                                        order.status === 'Cancelled' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'
+                                    }`}
+                                >
+                                    <option value="Pending">{t.order_status_pending}</option>
+                                    <option value="Paid">{t.order_status_paid}</option>
+                                    <option value="Shipped">{t.order_status_shipped}</option>
+                                    <option value="Cancelled">{t.order_status_cancelled}</option>
+                                </select>
+                            </td>
+                            <td className="px-4 py-3 text-center flex justify-center gap-1">
+                                <button onClick={() => handlePrintSpecificOrder(order)} className="p-1.5 text-slate-400 hover:text-sky-600 rounded hover:bg-slate-100" title={t.print}><Printer size={14}/></button>
+                                <button onClick={() => handleEditOrder(order)} className="p-1.5 text-slate-400 hover:text-blue-600 rounded hover:bg-slate-100" title="Edit"><Edit size={14}/></button>
+                            </td>
+                        </tr>
+                    ))}
+                    {recentSales.length === 0 && <tr><td colSpan={6} className="p-8 text-center text-slate-400">{t.order_no_data}</td></tr>}
+                 </tbody>
+             </table>
+        </div>
+      </div>
+    );
+  };
 
   const renderReports = () => {
     const filteredSales = recentSales.filter(s => {
@@ -613,96 +811,22 @@ const App: React.FC = () => {
     </div>
   );
 
-  const renderOrders = () => (
-    <div className="p-4 md:p-6 h-full overflow-y-auto bg-slate-50/50">
-      <div className="flex justify-between items-center mb-6">
-        <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2"><ClipboardList className="text-sky-600" /> {t.order_title}</h2>
-        <button onClick={() => { setEditingOrder(null); setIsOrderModalOpen(true); }} className="bg-sky-600 text-white px-3 py-2 rounded-lg shadow-sm hover:bg-sky-700 flex gap-2 font-bold text-sm"><Plus size={16} /> {t.order_create}</button>
-      </div>
-      <div className="bg-white rounded-xl border border-slate-100 shadow-sm overflow-hidden overflow-x-auto">
-        <table className="w-full text-left text-sm whitespace-nowrap">
-          <thead className="bg-slate-50 border-b border-slate-100 text-slate-500">
-            <tr>
-              <th className="px-4 py-3 text-xs font-bold uppercase tracking-wider">{t.order_id}</th>
-              <th className="px-4 py-3 text-xs font-bold uppercase tracking-wider">{t.order_customer}</th>
-              <th className="px-4 py-3 text-xs font-bold uppercase tracking-wider">{t.order_date}</th>
-              <th className="px-4 py-3 text-xs font-bold uppercase tracking-wider text-right">{t.order_total}</th>
-              <th className="px-4 py-3 text-xs font-bold uppercase tracking-wider">{t.order_shipping}</th>
-              <th className="px-4 py-3 text-xs font-bold uppercase tracking-wider">{t.order_status}</th>
-              <th className="px-4 py-3 text-xs font-bold uppercase tracking-wider text-center">{t.order_action}</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-50">
-            {recentSales.map((order) => (
-              <tr key={order.id} className="hover:bg-slate-50">
-                <td className="px-4 py-3 font-mono text-slate-500">#{order.id}</td>
-                <td className="px-4 py-3 font-medium text-slate-800"><div>{order.customerName}</div><div className="text-[10px] text-slate-400">{order.customerPhone}</div></td>
-                <td className="px-4 py-3 text-slate-500">{order.date}</td>
-                <td className="px-4 py-3 text-right font-bold text-slate-800">{formatCurrency(order.total, language)}</td>
-                <td className="px-4 py-3"><span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${order.shippingCarrier !== 'None' ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-600'}`}>{order.shippingCarrier === 'None' ? 'None' : order.shippingCarrier}</span></td>
-                <td className="px-4 py-3"><select value={order.status} onChange={(e) => updateOrderStatus(order.id, e.target.value as OrderStatus)} className={`text-[10px] font-bold px-2 py-1 rounded-lg border-0 outline-none cursor-pointer ${order.status === 'Paid' ? 'bg-green-100 text-green-700' : order.status === 'Pending' ? 'bg-yellow-100 text-yellow-700' : order.status === 'Shipped' ? 'bg-blue-100 text-blue-700' : 'bg-red-100 text-red-700'}`}><option value="Pending">{t.order_status_pending}</option><option value="Paid">{t.order_status_paid}</option><option value="Shipped">{t.order_status_shipped}</option><option value="Cancelled">{t.order_status_cancelled}</option></select></td>
-                <td className="px-4 py-3 text-center flex items-center justify-center gap-2">
-                   <button onClick={() => handleEditOrder(order)} className="p-1.5 text-slate-400 hover:text-blue-600 rounded hover:bg-slate-100" title="Edit"><Edit size={16} /></button>
-                   <button onClick={() => handlePrintSpecificOrder(order)} className="p-1.5 text-slate-400 hover:text-sky-600 rounded hover:bg-slate-100" title="Print Receipt"><Printer size={16} /></button>
-                </td>
-              </tr>
-            ))}
-            {recentSales.length === 0 && <tr><td colSpan={7} className="p-8 text-center text-slate-400">{t.order_no_data}</td></tr>}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-
-  const renderDashboard = () => {
-    const now = new Date(); const currentMonth = now.getMonth(); const currentYear = now.getFullYear();
-    const monthlySales = recentSales.filter(s => { if (s.status === 'Cancelled') return false; if (s.timestamp) { const d = new Date(s.timestamp); return d.getMonth() === currentMonth && d.getFullYear() === currentYear; } return s.date.includes(`${currentMonth + 1}/${currentYear}`) || s.date.includes(now.toLocaleDateString('th-TH').slice(3)); }).reduce((sum, s) => sum + s.total, 0);
-    const collectedRevenue = recentSales.filter(s => (s.status === 'Paid' || s.status === 'Shipped')).reduce((sum, s) => sum + s.total, 0);
-    const grossProfit = recentSales.filter(s => (s.status === 'Paid' || s.status === 'Shipped')).reduce((sum, order) => { const orderCost = order.items.reduce((c, item) => c + ((item.cost || 0) * item.quantity), 0); return sum + (order.total - orderCost); }, 0);
-    const stockValue = products.reduce((sum, p) => sum + (p.stock * (p.cost || 0)), 0);
-    
-    // Updated Compact KPI Card
-    const KPICard = ({ title, value, sub, icon: Icon, color, bg }: any) => (
-      <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex flex-col sm:flex-row items-start sm:items-center gap-4 hover:shadow-md transition-shadow">
-        <div className={`p-2.5 rounded-xl ${bg} ${color} shrink-0`}><Icon size={20} /></div>
-        <div className="min-w-0">
-          <p className="text-slate-500 text-xs font-bold uppercase tracking-wide mb-0.5 truncate">{title}</p>
-          <h3 className={`text-lg sm:text-xl font-bold ${color} truncate`}>{value}</h3>
-          <p className="text-[10px] text-slate-400 mt-0.5 truncate">{sub}</p>
-        </div>
-      </div>
-    );
-
-    return (
-      <div className="p-4 md:p-6 h-full overflow-y-auto bg-slate-50/50">
-        <h2 className="text-xl font-bold text-slate-800 mb-6 flex items-center gap-2"><LayoutDashboard className="text-sky-600" /> {t.dash_title}</h2>
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-           <KPICard title={t.dash_sales_month} value={formatCurrency(monthlySales, language)} sub={t.dash_total_orders} icon={BarChart3} color="text-blue-600" bg="bg-blue-50" />
-           <KPICard title={t.dash_cash_in} value={formatCurrency(collectedRevenue, language)} sub={t.dash_paid_only} icon={Wallet} color="text-green-600" bg="bg-green-50" />
-           <KPICard title={t.dash_profit} value={formatCurrency(grossProfit, language)} sub={t.dash_sales_cost} icon={TrendingUp} color="text-indigo-600" bg="bg-indigo-50" />
-           <KPICard title={t.dash_stock_value} value={formatCurrency(stockValue, language)} sub={t.dash_stock_remaining} icon={PieChart} color="text-orange-600" bg="bg-orange-50" />
-        </div>
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-           <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden flex flex-col h-72">
-             <div className="p-4 border-b border-slate-100 font-bold text-slate-800 flex justify-between items-center text-sm"><span>{t.dash_best_seller}</span><TrendingUp size={16} className="text-slate-400"/></div>
-             <div className="flex-1 flex items-center justify-center p-4"><div className="text-center text-slate-400"><BarChart3 size={40} className="mx-auto mb-2 opacity-20"/><p className="text-xs">No Data</p></div></div>
-           </div>
-           <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden flex flex-col h-72">
-            <div className="p-4 border-b border-slate-100 font-bold text-slate-800 flex justify-between items-center text-sm"><span className="flex items-center gap-2 text-red-600"><AlertTriangle size={16}/> {t.dash_low_stock}</span><span className="text-[10px] bg-red-100 text-red-600 px-2 py-0.5 rounded-full">{products.filter(p=>p.stock<10).length} Items</span></div>
-            <div className="flex-1 overflow-y-auto divide-y divide-slate-50">
-              {products.filter(p=>p.stock<10).length > 0 ? products.filter(p=>p.stock<10).map(p=>(<div key={p.id} className="p-3 flex justify-between items-center hover:bg-slate-50 transition-colors"><div className="flex items-center gap-3"><div className="w-8 h-8 rounded bg-slate-100 flex items-center justify-center text-[10px] font-bold text-slate-500">{p.code.slice(0,2)}</div><div><p className="font-medium text-slate-800 text-sm">{p.name}</p><p className="text-[10px] text-slate-400">SKU: {p.code}</p></div></div><div className="text-red-500 font-bold bg-red-50 px-2 py-0.5 rounded text-xs">{t.stock_remaining} {p.stock}</div></div>)) : (<div className="flex-1 flex flex-col items-center justify-center text-green-500"><Check size={32} className="mb-2"/><p className="text-xs">{t.dash_stock_ok}</p></div>)}
-            </div>
-           </div>
-        </div>
-      </div>
-    );
-  };
-
   const renderPOS = () => {
     const filteredProducts = products.filter(p => (selectedCategory === 'All' || p.category === selectedCategory) && (p.name.toLowerCase().includes(searchQuery.toLowerCase()) || p.code.toLowerCase().includes(searchQuery.toLowerCase())));
     const categories = ['All', ...new Set(products.map(p => p.category))];
     const { items: cartItems, total: cartTotal } = calculatedCart;
     
+    // Calculate Bill Discount
+    let discountAmount = 0;
+    if (manualDiscount.value > 0) {
+        if (manualDiscount.type === 'percent') {
+            discountAmount = (cartTotal * manualDiscount.value) / 100;
+        } else {
+            discountAmount = manualDiscount.value;
+        }
+    }
+    const netTotal = Math.max(0, cartTotal - discountAmount);
+
     return (
       <div className="flex flex-col md:flex-row h-full overflow-hidden bg-slate-50">
         <div className="flex-1 flex flex-col h-full overflow-hidden">
@@ -776,7 +900,41 @@ const App: React.FC = () => {
            </div>
            <div className="p-4 bg-white border-t border-slate-100 space-y-3">
              <div className="flex justify-between text-slate-500 text-xs"><span>{t.pos_total_items}</span><span>{formatCurrency(cartTotal, language)}</span></div>
-             <div className="flex justify-between text-xl font-bold text-slate-800"><span>{t.pos_net_total}</span><span>{formatCurrency(cartTotal, language)}</span></div>
+             
+             {/* Discount Section */}
+             <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-slate-500">{t.pos_discount}</span>
+                  <div className="flex-1 flex items-center bg-slate-100 rounded-lg p-1">
+                      <button 
+                        onClick={() => setManualDiscount({...manualDiscount, type: 'amount'})}
+                        className={`flex-1 text-[10px] font-bold py-1 rounded transition-all ${manualDiscount.type === 'amount' ? 'bg-white shadow text-slate-800' : 'text-slate-400'}`}
+                      >
+                        {language === 'th' ? '฿' : (language === 'en' ? '$' : '₭')}
+                      </button>
+                      <button 
+                        onClick={() => setManualDiscount({...manualDiscount, type: 'percent'})}
+                        className={`flex-1 text-[10px] font-bold py-1 rounded transition-all ${manualDiscount.type === 'percent' ? 'bg-white shadow text-slate-800' : 'text-slate-400'}`}
+                      >
+                        %
+                      </button>
+                  </div>
+                  <input 
+                    type="number" 
+                    min="0"
+                    value={manualDiscount.value || ''}
+                    onChange={(e) => setManualDiscount({ ...manualDiscount, value: parseFloat(e.target.value) || 0 })}
+                    className="w-20 p-1.5 text-right text-sm font-bold border border-slate-200 rounded-lg outline-none focus:border-sky-500"
+                    placeholder="0"
+                  />
+             </div>
+             {discountAmount > 0 && (
+                  <div className="flex justify-between text-red-500 text-xs font-bold">
+                      <span>{t.pos_discount} {manualDiscount.type === 'percent' ? `(${manualDiscount.value}%)` : ''}</span>
+                      <span>-{formatCurrency(discountAmount, language)}</span>
+                  </div>
+             )}
+
+             <div className="flex justify-between text-xl font-bold text-slate-800"><span>{t.pos_net_total}</span><span>{formatCurrency(netTotal, language)}</span></div>
              <button onClick={() => setIsPaymentModalOpen(true)} disabled={cartItems.length === 0} className="w-full bg-sky-600 text-white py-3 rounded-xl font-bold text-base shadow-lg shadow-sky-200 hover:bg-sky-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-95 flex justify-center items-center gap-2">
                 <Banknote size={18}/> {t.pos_pay}
              </button>
@@ -815,6 +973,7 @@ const App: React.FC = () => {
         <div className="mt-6 pt-6 border-t border-slate-100">
           <h3 className="font-bold text-red-600 mb-4 flex items-center gap-2 text-sm"><AlertTriangle size={16} /> {t.setting_danger}</h3>
           <div className="space-y-2">
+             <div className="bg-orange-50 border border-orange-200 rounded-xl p-3 flex items-center justify-between"><div><h4 className="font-bold text-orange-700 text-xs flex items-center gap-2"><History size={12}/> {t.setting_clear_sales}</h4><p className="text-[10px] text-orange-500 mt-0.5">Orders & Transactions</p></div><button onClick={handleClearSalesData} className="px-3 py-1.5 bg-white border border-orange-300 text-orange-700 rounded-lg text-xs font-bold hover:bg-orange-600 hover:text-white transition-colors shadow-sm">Clear</button></div>
              <div className="bg-red-50 border border-red-100 rounded-xl p-3 flex items-center justify-between"><div><h4 className="font-bold text-red-700 text-xs flex items-center gap-2"><RefreshCw size={12}/> {t.setting_factory_reset}</h4><p className="text-[10px] text-red-500 mt-0.5">Default data</p></div><button onClick={handleResetToDefaults} className="px-3 py-1.5 bg-white border border-red-200 text-red-600 rounded-lg text-xs font-bold hover:bg-red-600 hover:text-white transition-colors shadow-sm">Reset</button></div>
              <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 flex items-center justify-between"><div><h4 className="font-bold text-slate-700 text-xs flex items-center gap-2"><Eraser size={12}/> {t.setting_clear_all}</h4><p className="text-[10px] text-slate-500 mt-0.5">Delete all data</p></div><button onClick={handleClearAllData} className="px-3 py-1.5 bg-white border border-slate-300 text-slate-700 rounded-lg text-xs font-bold hover:bg-slate-800 hover:text-white transition-colors shadow-sm">Clear</button></div>
           </div>
@@ -873,7 +1032,8 @@ const App: React.FC = () => {
           <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-xl animate-in zoom-in-95">
             <h3 className="text-lg font-bold mb-4">{editingProduct ? t.stock_manage : t.stock_add}</h3>
             <form onSubmit={handleSaveProduct} className="space-y-4">
-              <div className="flex justify-center mb-4">
+              <div className="flex flex-col items-center justify-center mb-4">
+                  <label className="text-xs font-bold text-slate-500 mb-2 block">{t.stock_image}</label>
                   <div 
                     className="w-24 h-24 rounded-xl bg-slate-100 border-2 border-dashed border-slate-300 flex items-center justify-center overflow-hidden relative group cursor-pointer hover:border-sky-500 transition-colors"
                     onClick={() => productImageInputRef.current?.click()}
@@ -942,7 +1102,34 @@ const App: React.FC = () => {
                   </div>
                 ))}
               </div>
-              <div className="flex justify-between font-bold text-lg mb-6"><span>Total</span><span>{formatCurrency(currentOrder.total, language)}</span></div>
+              
+              {/* Discount Section in Receipt */}
+              <div className="space-y-1 mb-6 border-b border-dashed border-slate-300 pb-4">
+                  {currentOrder.subtotal && currentOrder.subtotal !== currentOrder.total && (
+                      <div className="flex justify-between text-xs text-slate-500">
+                          <span>{t.pos_total_items}</span>
+                          <span>{formatCurrency(currentOrder.subtotal, language)}</span>
+                      </div>
+                  )}
+                  {currentOrder.discountValue && currentOrder.discountValue > 0 && (
+                      <div className="flex justify-between text-xs text-red-500 font-bold">
+                          <span>{t.pos_discount} {currentOrder.discountType === 'percent' ? `(${currentOrder.discountValue}%)` : ''}</span>
+                          <span>
+                              -{formatCurrency(
+                                  currentOrder.discountType === 'percent' 
+                                  ? (currentOrder.subtotal! * currentOrder.discountValue) / 100 
+                                  : currentOrder.discountValue, 
+                                  language
+                              )}
+                          </span>
+                      </div>
+                  )}
+                  <div className="flex justify-between font-bold text-lg pt-2">
+                      <span>Total</span>
+                      <span>{formatCurrency(currentOrder.total, language)}</span>
+                  </div>
+              </div>
+
               {storeProfile.promptPayId && (<div className="text-center mb-4 p-2 bg-slate-50 rounded"><p className="text-xs font-bold mb-1">PromptPay / QR Payment</p><p className="font-mono text-sm">{storeProfile.promptPayId}</p></div>)}
               <div className="text-center text-xs text-slate-400">Thank you</div>
             </div>
@@ -958,7 +1145,21 @@ const App: React.FC = () => {
       {isPaymentModalOpen && (
         <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
           <div className="bg-white rounded-3xl w-full max-w-sm p-6 shadow-2xl animate-in zoom-in-95 duration-200">
-             <div className="text-center mb-6"><p className="text-slate-500 text-sm mb-1">{t.pay_total}</p><h3 className="text-4xl font-bold text-slate-800">{formatCurrency(calculatedCart.total, language)}</h3></div>
+             <div className="text-center mb-6">
+                 <p className="text-slate-500 text-sm mb-1">{t.pay_total}</p>
+                 <h3 className="text-4xl font-bold text-slate-800">
+                     {(() => {
+                        const { total } = calculatedCart;
+                        let discount = 0;
+                        if (manualDiscount.value > 0) {
+                            discount = manualDiscount.type === 'percent' 
+                                ? (total * manualDiscount.value) / 100 
+                                : manualDiscount.value;
+                        }
+                        return formatCurrency(Math.max(0, total - discount), language);
+                     })()}
+                 </h3>
+             </div>
              <div className="grid grid-cols-2 gap-4 mb-8">
                <button onClick={()=>setPaymentMethod('cash')} className={`p-4 border-2 rounded-2xl flex flex-col items-center gap-2 transition-all ${paymentMethod==='cash'?'border-sky-500 bg-sky-50 text-sky-700':'border-slate-100 text-slate-400 hover:border-slate-200'}`}><Banknote size={32}/><span className="font-bold">{t.pay_cash}</span></button>
                <button onClick={()=>setPaymentMethod('qr')} className={`p-4 border-2 rounded-2xl flex flex-col items-center gap-2 transition-all ${paymentMethod==='qr'?'border-sky-500 bg-sky-50 text-sky-700':'border-slate-100 text-slate-400 hover:border-slate-200'}`}><CreditCard size={32}/><span className="font-bold">{t.pay_qr}</span></button>
