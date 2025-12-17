@@ -374,6 +374,24 @@ const App: React.FC = () => {
     }
   };
 
+  const handleDeleteOrder = (orderId: string) => {
+      if (confirm(t.order_delete_confirm)) {
+          // 1. Find the order
+          const orderToDelete = recentSales.find(s => s.id === orderId);
+          if (!orderToDelete) return;
+
+          // 2. Return stock
+          const productsRestored = products.map(p => {
+              const soldItem = orderToDelete.items.find(i => i.id === p.id);
+              return soldItem ? { ...p, stock: p.stock + soldItem.quantity } : p;
+          });
+          setProducts(productsRestored);
+
+          // 3. Remove from sales list
+          setRecentSales(prev => prev.filter(s => s.id !== orderId));
+      }
+  };
+
   // --- Logic ---
   const addToCart = (product: Product, isTemp = false) => {
     const setter = isTemp ? setTempOrderCart : setCart;
@@ -689,6 +707,7 @@ const App: React.FC = () => {
                             <td className="px-4 py-3 text-center flex justify-center gap-1">
                                 <button onClick={() => handlePrintSpecificOrder(order)} className="p-1.5 text-slate-400 hover:text-sky-600 rounded hover:bg-slate-100" title={t.print}><Printer size={14}/></button>
                                 <button onClick={() => handleEditOrder(order)} className="p-1.5 text-slate-400 hover:text-blue-600 rounded hover:bg-slate-100" title="Edit"><Edit size={14}/></button>
+                                <button onClick={() => handleDeleteOrder(order.id)} className="p-1.5 text-slate-400 hover:text-red-600 rounded hover:bg-slate-100" title={t.delete}><Trash2 size={14}/></button>
                             </td>
                         </tr>
                     ))}
@@ -699,117 +718,6 @@ const App: React.FC = () => {
       </div>
     );
   };
-
-  const renderReports = () => {
-    const filteredSales = recentSales.filter(s => {
-      if (s.status === 'Cancelled') return false;
-      const time = s.timestamp || new Date(s.date).getTime(); if (isNaN(time)) return false; 
-      const saleDate = new Date(time); const start = new Date(reportDateRange.start); start.setHours(0,0,0,0); const end = new Date(reportDateRange.end); end.setHours(23, 59, 59, 999);
-      return saleDate >= start && saleDate <= end;
-    });
-    const totalSales = filteredSales.reduce((sum, s) => sum + s.total, 0); const totalOrders = filteredSales.length;
-    
-    return (
-      <div className="p-4 md:p-6 h-full overflow-y-auto bg-slate-50/50">
-        <h2 className="text-xl font-bold text-slate-800 mb-4 flex items-center gap-2"><BarChart3 className="text-sky-600"/> {t.menu_reports}</h2>
-        <div className="flex flex-wrap gap-4 mb-6 items-end bg-white p-4 rounded-xl border border-slate-100 shadow-sm">
-           <div><label className="text-xs font-bold text-slate-500 mb-1 block">{t.order_date}</label><input type="date" value={reportDateRange.start} onChange={e => setReportDateRange({...reportDateRange, start: e.target.value})} className="p-2 border rounded-lg text-sm bg-slate-50"/></div>
-           <div><label className="text-xs font-bold text-slate-500 mb-1 block">-</label><input type="date" value={reportDateRange.end} onChange={e => setReportDateRange({...reportDateRange, end: e.target.value})} className="p-2 border rounded-lg text-sm bg-slate-50"/></div>
-           <div className="text-xs text-slate-400 pb-2 ml-2">{filteredSales.length} records</div>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-           <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-100"><p className="text-slate-500 text-xs mb-1">{t.dash_sales_month}</p><h3 className="text-2xl font-bold text-sky-600">{formatCurrency(totalSales, language)}</h3></div>
-           <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-100"><p className="text-slate-500 text-xs mb-1">{t.dash_total_orders}</p><h3 className="text-2xl font-bold text-slate-800">{totalOrders}</h3></div>
-           <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-100"><p className="text-slate-500 text-xs mb-1">AVG / Order</p><h3 className="text-2xl font-bold text-green-600">{totalOrders > 0 ? formatCurrency(totalSales / totalOrders, language) : formatCurrency(0, language)}</h3></div>
-        </div>
-        <div className="bg-white rounded-xl border border-slate-100 shadow-sm overflow-hidden overflow-x-auto">
-             <table className="w-full text-left text-sm whitespace-nowrap">
-                 <thead className="bg-slate-50 border-b border-slate-100 text-slate-500">
-                     <tr>
-                         <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider">{t.order_date}</th>
-                         <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider">{t.order_id}</th>
-                         <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider">{t.order_customer}</th>
-                         <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">{t.order_total}</th>
-                         <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">{t.dash_profit}</th>
-                     </tr>
-                 </thead>
-                 <tbody className="divide-y divide-slate-50">
-                    {filteredSales.map(s => { const cost = s.items.reduce((acc, i) => acc + ((i.cost || 0) * i.quantity), 0);
-                        return (<tr key={s.id} className="hover:bg-slate-50"><td className="px-4 py-3 text-slate-500">{s.date}</td><td className="px-4 py-3 font-mono text-slate-600">#{s.id}</td><td className="px-4 py-3">{s.customerName}</td><td className="px-4 py-3 text-right font-bold text-slate-800">{formatCurrency(s.total, language)}</td><td className="px-4 py-3 text-right text-green-600 font-medium">{formatCurrency(s.total - cost, language)}</td></tr>)
-                    })}
-                    {filteredSales.length === 0 && <tr><td colSpan={5} className="p-8 text-center text-slate-400">{t.order_no_data}</td></tr>}
-                 </tbody>
-             </table>
-        </div>
-      </div>
-    );
-  };
-
-  const renderPromotions = () => (
-    <div className="p-4 md:p-6 h-full overflow-y-auto bg-slate-50/50">
-      <div className="flex justify-between items-center mb-6">
-        <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2"><Tag className="text-sky-600" /> {t.menu_promotions}</h2>
-        <button onClick={() => { setEditingPromotion(null); setPromoType('tiered_price'); setIsPromotionModalOpen(true); }} className="bg-sky-600 text-white px-3 py-2 rounded-lg shadow-sm hover:bg-sky-700 flex gap-2 font-bold items-center text-sm"><Plus size={16} /> {t.promo_add}</button>
-      </div>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {promotions.map(promo => (
-          <div key={promo.id} className={`bg-white p-4 rounded-xl border transition-all ${promo.isActive ? 'border-sky-200 shadow-sm' : 'border-slate-100 opacity-70 grayscale-[0.5] hover:grayscale-0'}`}>
-             <div className="flex justify-between items-start mb-2">
-                 <div>
-                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase mb-1 inline-block ${promo.type === 'tiered_price' ? 'bg-blue-100 text-blue-700' : 'bg-orange-100 text-orange-700'}`}>{promo.type === 'tiered_price' ? 'Tier Price' : 'Buy X Get Y'}</span>
-                    <h3 className="font-bold text-base text-slate-800 line-clamp-1" title={promo.name}>{promo.name}</h3>
-                 </div>
-                 <div className="flex gap-1 shrink-0"><button onClick={() => { setEditingPromotion(promo); setIsPromotionModalOpen(true); }} className="p-1.5 text-slate-400 hover:text-sky-600 rounded hover:bg-slate-50"><Edit size={14}/></button><button onClick={() => { if(confirm(t.stock_delete_confirm)) setPromotions(prev => prev.filter(p => p.id !== promo.id)); }} className="p-1.5 text-slate-400 hover:text-red-500 rounded hover:bg-slate-50"><Trash2 size={14}/></button></div>
-             </div>
-             <div className="text-xs text-slate-500 mb-3 space-y-1 bg-slate-50 p-2 rounded-lg">
-                 <p className="line-clamp-2"><span className="font-bold text-slate-700">SKUs:</span> {promo.targetSkus?.join(', ') || 'All'}</p>
-                 {promo.type === 'tiered_price' && (<p className="line-clamp-2"><span className="font-bold text-slate-700">Cond:</span> {promo.tiers?.map(t => `@${t.minQty} -> ${t.price}`).join(', ')}</p>)}
-                 {promo.type === 'buy_x_get_y' && (<p><span className="font-bold text-slate-700">Cond:</span> Buy {promo.requiredQty} Get {promo.freeSku} x{promo.freeQty}</p>)}
-             </div>
-             <div className="flex items-center gap-2 pt-1">
-                 <label className="relative inline-flex items-center cursor-pointer">
-                    <input type="checkbox" className="sr-only peer" checked={promo.isActive} onChange={() => setPromotions(prev => prev.map(p => p.id === promo.id ? { ...p, isActive: !p.isActive } : p))} />
-                    <div className="w-8 h-4 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-sky-600"></div>
-                 </label>
-             </div>
-          </div>
-        ))}
-        {promotions.length === 0 && (
-          <div className="col-span-full flex flex-col items-center justify-center p-12 text-slate-400 border-2 border-dashed border-slate-200 rounded-xl bg-slate-50">
-            <Tag size={40} className="mb-3 opacity-20"/>
-            <p className="text-sm font-medium mb-3">{t.promo_no_data}</p>
-            <button 
-              onClick={() => { setEditingPromotion(null); setPromoType('tiered_price'); setIsPromotionModalOpen(true); }}
-              className="text-sky-600 hover:text-sky-700 text-sm font-bold hover:underline flex items-center gap-1"
-            >
-              <Plus size={14}/> {t.promo_add}
-            </button>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-
-  const renderAI = () => (
-    <div className="flex flex-col h-full bg-slate-50">
-       <div className="p-4 bg-white border-b border-slate-200 shadow-sm flex items-center gap-3">
-          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-sky-500 to-purple-600 flex items-center justify-center text-white shadow-lg"><Sparkles size={16} /></div>
-          <div><h2 className="font-bold text-slate-800 text-sm">{t.ai_title}</h2><p className="text-[10px] text-slate-500">{t.ai_desc}</p></div>
-       </div>
-       <div className="flex-1 overflow-y-auto p-4 space-y-4">
-          {messages.length === 0 && (<div className="flex flex-col items-center justify-center h-full text-slate-400 space-y-4 opacity-70"><div className="w-16 h-16 bg-white rounded-full flex items-center justify-center shadow-sm"><Store size={32} className="text-sky-200" /></div><p>{t.ai_title}</p></div>)}
-          {messages.map(m => (<ChatMessage key={m.id} message={m} />))}
-          {isChatLoading && (<div className="flex items-center gap-2 text-slate-400 text-xs ml-4"><Loader2 size={14} className="animate-spin" /><span>{t.ai_thinking}</span></div>)}
-          <div ref={messagesEndRef} />
-       </div>
-       <div className="p-3 bg-white border-t border-slate-200">
-          <form onSubmit={handleSendMessage} className="flex gap-2 relative">
-             <input value={chatInput} onChange={(e) => setChatInput(e.target.value)} placeholder={t.ai_input_placeholder} className="flex-1 pl-3 pr-10 py-2 text-sm bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-100 transition-all" disabled={isChatLoading} />
-             <button type="submit" disabled={!chatInput.trim() || isChatLoading} className="absolute right-1 top-1 p-1.5 bg-sky-600 text-white rounded-md hover:bg-sky-700 disabled:opacity-50 disabled:bg-slate-300 transition-all"><Send size={16} /></button>
-          </form>
-       </div>
-    </div>
-  );
 
   const renderPOS = () => {
     const filteredProducts = products.filter(p => (selectedCategory === 'All' || p.category === selectedCategory) && (p.name.toLowerCase().includes(searchQuery.toLowerCase()) || p.code.toLowerCase().includes(searchQuery.toLowerCase())));
@@ -865,7 +773,16 @@ const App: React.FC = () => {
         <div className="w-full md:w-80 lg:w-96 bg-white border-l border-slate-200 flex flex-col h-[40vh] md:h-full shadow-xl z-20">
            <div className="p-4 bg-white border-b border-slate-100 flex justify-between items-center">
              <h2 className="font-bold text-base flex items-center gap-2"><ShoppingCart className="text-sky-600" size={20}/> {t.pos_cart_title}</h2>
-             <span className="bg-sky-50 text-sky-700 px-2 py-0.5 rounded text-[10px] font-bold uppercase">{cartItems.length} {t.pos_items}</span>
+             <div className="flex gap-2">
+                 <button 
+                    onClick={() => { if(cartItems.length > 0 && confirm(t.pos_clear_cart + '?')) setCart([]); }}
+                    disabled={cartItems.length === 0}
+                    className="text-[10px] bg-red-50 text-red-600 hover:bg-red-100 px-2 py-1 rounded font-bold uppercase transition-colors disabled:opacity-50"
+                 >
+                    {t.pos_clear_cart}
+                 </button>
+                 <span className="bg-sky-50 text-sky-700 px-2 py-1 rounded text-[10px] font-bold uppercase">{cartItems.length} {t.pos_items}</span>
+             </div>
            </div>
            <div className="flex-1 overflow-y-auto p-3 space-y-2">
              {cartItems.map((item, idx) => (
@@ -942,6 +859,178 @@ const App: React.FC = () => {
         </div>
       </div>
     );
+  };
+
+  const renderReports = () => {
+    // Filter sales by date
+    const start = new Date(reportDateRange.start).getTime();
+    const end = new Date(reportDateRange.end).getTime() + (24 * 60 * 60 * 1000) - 1; // End of day
+    
+    const filteredSales = recentSales.filter(s => {
+      const d = s.timestamp || new Date(s.date).getTime();
+      return d >= start && d <= end && s.status !== 'Cancelled';
+    });
+
+    const totalSales = filteredSales.reduce((sum, s) => sum + s.total, 0);
+    const totalOrders = filteredSales.length;
+    
+    const paymentStats = filteredSales.reduce((acc, s) => {
+        acc[s.paymentMethod] = (acc[s.paymentMethod] || 0) + s.total;
+        return acc;
+    }, {} as Record<string, number>);
+
+    return (
+        <div className="p-4 md:p-6 h-full overflow-y-auto bg-slate-50/50">
+            <h2 className="text-xl font-bold text-slate-800 mb-6 flex items-center gap-2"><BarChart3 className="text-sky-600"/> {t.menu_reports}</h2>
+            
+            <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-100 mb-6">
+                <div className="flex flex-col sm:flex-row gap-4 items-end sm:items-center">
+                    <div>
+                        <label className="text-xs font-bold text-slate-500 block mb-1">Start Date</label>
+                        <input type="date" value={reportDateRange.start} onChange={e => setReportDateRange({...reportDateRange, start: e.target.value})} className="p-2 border rounded-lg text-sm"/>
+                    </div>
+                    <div>
+                        <label className="text-xs font-bold text-slate-500 block mb-1">End Date</label>
+                        <input type="date" value={reportDateRange.end} onChange={e => setReportDateRange({...reportDateRange, end: e.target.value})} className="p-2 border rounded-lg text-sm"/>
+                    </div>
+                </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-100">
+                    <p className="text-slate-500 text-xs mb-1">Total Sales</p>
+                    <h3 className="text-2xl font-bold text-slate-800">{formatCurrency(totalSales, language)}</h3>
+                </div>
+                <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-100">
+                     <p className="text-slate-500 text-xs mb-1">Orders</p>
+                    <h3 className="text-2xl font-bold text-slate-800">{totalOrders}</h3>
+                </div>
+                 <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-100">
+                     <p className="text-slate-500 text-xs mb-1">Average / Order</p>
+                    <h3 className="text-2xl font-bold text-slate-800">{totalOrders > 0 ? formatCurrency(totalSales / totalOrders, language) : 0}</h3>
+                </div>
+            </div>
+
+             <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-4">
+                <h3 className="font-bold text-slate-700 mb-4">Payment Methods</h3>
+                <div className="space-y-3">
+                    {Object.entries(paymentStats).map(([method, amount]) => (
+                        <div key={method} className="flex justify-between items-center">
+                            <span className="capitalize text-sm font-medium text-slate-600">{method}</span>
+                            <span className="font-bold text-slate-800">{formatCurrency(amount, language)}</span>
+                        </div>
+                    ))}
+                     {Object.keys(paymentStats).length === 0 && <p className="text-sm text-slate-400">No data available</p>}
+                </div>
+             </div>
+        </div>
+    );
+  };
+
+  const renderPromotions = () => {
+    return (
+        <div className="p-4 md:p-6 h-full overflow-y-auto bg-slate-50/50">
+             <div className="flex justify-between items-center mb-6">
+                 <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2"><Tag className="text-sky-600"/> {t.menu_promotions}</h2>
+                 <button onClick={() => { setEditingPromotion(null); setIsPromotionModalOpen(true); }} className="bg-sky-600 text-white px-3 py-2 rounded-lg shadow-sm hover:bg-sky-700 flex gap-2 text-sm font-bold items-center"><Plus size={16}/> {t.promo_add}</button>
+             </div>
+
+             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {promotions.map(promo => (
+                    <div key={promo.id} className={`bg-white p-4 rounded-xl border ${promo.isActive ? 'border-sky-200 shadow-sm' : 'border-slate-100 opacity-75'} relative`}>
+                        <div className="flex justify-between items-start mb-2">
+                             <div className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase ${promo.type === 'tiered_price' ? 'bg-orange-100 text-orange-700' : 'bg-purple-100 text-purple-700'}`}>
+                                {promo.type === 'tiered_price' ? 'Tier Price' : 'Buy X Get Y'}
+                             </div>
+                             <div className="flex gap-1">
+                                 <button onClick={() => { setEditingPromotion(promo); setIsPromotionModalOpen(true); }} className="p-1.5 hover:bg-slate-100 rounded text-slate-400 hover:text-sky-600"><Edit size={14}/></button>
+                                 <button onClick={() => {
+                                     if(confirm(t.delete + '?')) setPromotions(prev => prev.filter(p => p.id !== promo.id));
+                                 }} className="p-1.5 hover:bg-slate-100 rounded text-slate-400 hover:text-red-600"><Trash2 size={14}/></button>
+                             </div>
+                        </div>
+                        <h3 className="font-bold text-slate-800 mb-1">{promo.name}</h3>
+                        <p className="text-xs text-slate-500 mb-4 line-clamp-2">
+                            Targets: {promo.targetSkus && promo.targetSkus.length > 0 ? promo.targetSkus.join(', ') : 'All Products'}
+                        </p>
+                        
+                        <div className="flex items-center justify-between mt-auto pt-3 border-t border-slate-50">
+                            <span className={`text-xs font-bold ${promo.isActive ? 'text-green-600' : 'text-slate-400'}`}>
+                                {promo.isActive ? 'Active' : 'Inactive'}
+                            </span>
+                            <label className="relative inline-flex items-center cursor-pointer">
+                                <input type="checkbox" className="sr-only peer" checked={promo.isActive} onChange={() => {
+                                    setPromotions(prev => prev.map(p => p.id === promo.id ? { ...p, isActive: !p.isActive } : p));
+                                }}/>
+                                <div className="w-9 h-5 bg-slate-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-sky-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-sky-600"></div>
+                            </label>
+                        </div>
+                    </div>
+                ))}
+                {promotions.length === 0 && (
+                    <div className="col-span-full py-12 text-center text-slate-400">
+                        <Tag size={48} className="mx-auto mb-3 opacity-20"/>
+                        <p>{t.promo_no_data}</p>
+                    </div>
+                )}
+             </div>
+        </div>
+    )
+  }
+
+  const renderAI = () => {
+      return (
+        <div className="flex flex-col h-full bg-slate-50">
+            <div className="p-4 bg-white border-b border-slate-200 shadow-sm flex justify-between items-center">
+                 <div>
+                    <h2 className="font-bold text-lg text-slate-800 flex items-center gap-2"><Sparkles className="text-sky-600"/> {t.ai_title}</h2>
+                    <p className="text-xs text-slate-500">{t.ai_desc}</p>
+                 </div>
+                 <button onClick={() => setMessages([])} className="text-xs text-slate-400 hover:text-red-500 font-medium">{t.pos_clear_cart}</button>
+            </div>
+            
+            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                {messages.length === 0 ? (
+                    <div className="h-full flex flex-col items-center justify-center text-slate-400 p-8 text-center opacity-60">
+                        <div className="w-20 h-20 bg-sky-100 rounded-full flex items-center justify-center mb-4 text-sky-500">
+                             <Sparkles size={40}/>
+                        </div>
+                        <h3 className="text-lg font-bold text-slate-600 mb-2">How can I help you today?</h3>
+                        <p className="text-sm max-w-md">I can help analyze your sales, suggest marketing strategies, or translate text between Lao, Thai, and English.</p>
+                    </div>
+                ) : (
+                    messages.map((msg) => (
+                        <ChatMessage key={msg.id} message={msg} />
+                    ))
+                )}
+                {isChatLoading && (
+                    <div className="flex items-center gap-2 text-slate-500 text-xs p-2">
+                        <Loader2 size={14} className="animate-spin"/> {t.ai_thinking}
+                    </div>
+                )}
+                <div ref={messagesEndRef} />
+            </div>
+
+            <div className="p-4 bg-white border-t border-slate-200">
+                <form onSubmit={handleSendMessage} className="relative">
+                    <input 
+                        value={chatInput} 
+                        onChange={(e) => setChatInput(e.target.value)}
+                        placeholder={t.ai_input_placeholder}
+                        className="w-full pl-4 pr-12 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-200 transition-all shadow-sm"
+                        disabled={isChatLoading}
+                    />
+                    <button 
+                        type="submit" 
+                        disabled={!chatInput.trim() || isChatLoading}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 p-2 bg-sky-600 text-white rounded-lg hover:bg-sky-700 disabled:opacity-50 disabled:bg-slate-300 transition-colors"
+                    >
+                        <Send size={18}/>
+                    </button>
+                </form>
+            </div>
+        </div>
+      );
   };
 
   const renderSettings = () => (

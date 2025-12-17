@@ -40,6 +40,7 @@ export const translations = {
     pos_stock: 'ຄັງ',
     pos_free: 'FREE',
     pos_discount: 'ສ່ວນຫຼຸດທ້າຍບິນ',
+    pos_clear_cart: 'ລ້າງກະຕ່າ',
     
     // Orders
     order_title: 'ລາຍການອໍເດີ້',
@@ -56,6 +57,7 @@ export const translations = {
     order_status_shipped: 'ສົ່ງແລ້ວ',
     order_status_cancelled: 'ຍົກເລີກ',
     order_no_data: 'ຍັງບໍ່ມີລາຍການຂາຍ',
+    order_delete_confirm: 'ຕ້ອງການລຶບອໍເດີ້ ແລະ ຄືນສິນຄ້າເຂົ້າສະຕັອກບໍ່?',
     
     // Stock
     stock_title: 'ຈັດການຄັງສິນຄ້າ',
@@ -98,6 +100,7 @@ export const translations = {
     file_select: 'ເລືອກໄຟລ໌',
     success: 'ສຳເລັດ',
     error: 'ຜິດພາດ',
+    delete: 'ລຶບ',
     
     // AI
     ai_title: 'ຜູ້ຊ່ວຍອັດສະລິຍະ',
@@ -150,6 +153,7 @@ export const translations = {
     pos_stock: 'คลัง',
     pos_free: 'แถม',
     pos_discount: 'ส่วนลดท้ายบิล',
+    pos_clear_cart: 'ล้างตะกร้า',
     
     // Orders
     order_title: 'รายการออเดอร์',
@@ -166,6 +170,7 @@ export const translations = {
     order_status_shipped: 'ส่งแล้ว',
     order_status_cancelled: 'ยกเลิก',
     order_no_data: 'ยังไม่มีรายการขาย',
+    order_delete_confirm: 'ต้องการลบออเดอร์ และคืนสินค้าเข้าสต็อกใช่ไหม?',
     
     // Stock
     stock_title: 'จัดการคลังสินค้า',
@@ -208,6 +213,7 @@ export const translations = {
     file_select: 'เลือกไฟล์',
     success: 'สำเร็จ',
     error: 'ผิดพลาด',
+    delete: 'ลบ',
     
     // AI
     ai_title: 'ผู้ช่วยอัจฉริยะ',
@@ -260,6 +266,7 @@ export const translations = {
     pos_stock: 'Stock',
     pos_free: 'FREE',
     pos_discount: 'Bill Discount',
+    pos_clear_cart: 'Clear',
     
     // Orders
     order_title: 'Order List',
@@ -276,6 +283,7 @@ export const translations = {
     order_status_shipped: 'Shipped',
     order_status_cancelled: 'Cancelled',
     order_no_data: 'No sales records found',
+    order_delete_confirm: 'Delete order and return stock?',
     
     // Stock
     stock_title: 'Inventory Management',
@@ -318,6 +326,7 @@ export const translations = {
     file_select: 'Select File',
     success: 'Success',
     error: 'Error',
+    delete: 'Delete',
     
     // AI
     ai_title: 'AI Assistant',
