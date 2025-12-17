@@ -24,6 +24,25 @@ const formatCurrency = (amount: number, lang: Language) => {
   }).format(amount);
 };
 
+// Custom Low Stock Checker
+const checkIsLowStock = (product: Product): boolean => {
+  const name = product.name.toLowerCase();
+  const category = product.category.toLowerCase();
+  
+  // กลุ่มถุงกาแฟ (Coffee Bags) -> Threshold 100
+  if (name.includes('ถุงกาแฟ') || category.includes('ถุงกาแฟ') || name.includes('coffee bag') || category.includes('coffee bag')) {
+    return product.stock <= 100;
+  }
+  
+  // กลุ่มกระดาษกรอง (Filter Paper) -> Threshold 10
+  if (name.includes('กระดาษกรอง') || category.includes('กระดาษกรอง') || name.includes('filter paper') || category.includes('filter paper')) {
+    return product.stock <= 10;
+  }
+  
+  // สินค้าอื่นๆ -> Threshold 1
+  return product.stock <= 1;
+};
+
 const INITIAL_PRODUCTS: Product[] = [
   { id: '1', code: 'FD001', name: 'ຕຳໝາກຫຸ່ງ (Papaya Salad)', price: 25000, cost: 15000, category: 'Food', stock: 50, color: 'bg-orange-100 text-orange-800', imageUrl: 'https://images.unsplash.com/photo-1563897539633-7374c276c212?w=500&q=80' },
   { id: '2', code: 'BV001', name: 'ເບຍລາວ (Beer Lao)', price: 15000, cost: 12000, category: 'Drink', stock: 120, color: 'bg-yellow-100 text-yellow-800' },
@@ -659,7 +678,7 @@ const App: React.FC = () => {
   const renderDashboard = () => {
     const totalSales = recentSales.filter(s => s.status !== 'Cancelled').reduce((sum, s) => sum + s.total, 0);
     const totalOrders = recentSales.filter(s => s.status !== 'Cancelled').length;
-    const lowStockItems = products.filter(p => p.stock < 10);
+    const lowStockItems = products.filter(checkIsLowStock);
     const totalCost = recentSales.filter(s => s.status !== 'Cancelled').reduce((sum, sale) => sum + sale.items.reduce((c, item) => c + ((item.cost || 0) * item.quantity), 0), 0);
     const profit = totalSales - totalCost;
 
@@ -693,7 +712,7 @@ const App: React.FC = () => {
             <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-100">
                 <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2"><Package size={18} /> {t.dash_low_stock}</h3>
                 <div className="space-y-3">
-                    {lowStockItems.slice(0, 5).map(p => (
+                    {lowStockItems.slice(0, 10).map(p => (
                         <div key={p.id} className="flex justify-between items-center p-2 hover:bg-slate-50 rounded-lg transition-colors">
                             <div className="flex items-center gap-3"><div className={`w-10 h-10 rounded-lg ${p.color} flex items-center justify-center text-xs font-bold overflow-hidden`}>{p.imageUrl ? <img src={p.imageUrl} className="w-full h-full object-cover"/> : p.code}</div><div><p className="text-sm font-bold text-slate-700">{p.name}</p><p className="text-xs text-slate-400">Stock: {p.stock}</p></div></div>
                             <button onClick={() => {setEditingProduct(p); setIsProductModalOpen(true);}} className="text-xs font-bold text-sky-600 hover:underline">{t.stock_manage}</button>
@@ -757,23 +776,26 @@ const App: React.FC = () => {
            
            <div className="flex-1 p-4 overflow-y-auto">
              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-               {filteredProducts.map(product => (
-                 <button 
-                   key={product.id} 
-                   onClick={() => addToCart(product)}
-                   className="bg-white p-3 rounded-2xl shadow-sm border border-slate-100 hover:shadow-md hover:border-sky-200 transition-all group text-left flex flex-col h-full"
-                 >
-                   <div className={`w-full aspect-square rounded-xl ${product.color} mb-3 flex items-center justify-center text-xl font-bold overflow-hidden relative`}>
-                     {product.imageUrl ? <img src={product.imageUrl} alt={product.name} className="w-full h-full object-cover transition-transform group-hover:scale-110" /> : product.name.charAt(0)}
-                     {product.stock <= 5 && <div className="absolute top-2 right-2 bg-red-500 text-white text-[10px] px-2 py-0.5 rounded-full font-bold">Low</div>}
-                   </div>
-                   <h3 className="font-bold text-slate-800 text-sm line-clamp-2 mb-1">{product.name}</h3>
-                   <div className="mt-auto flex justify-between items-end">
-                     <span className="text-sky-600 font-bold">{formatCurrency(product.price, language)}</span>
-                     <span className="text-[10px] text-slate-400 bg-slate-50 px-1.5 py-0.5 rounded">{t.pos_stock}: {product.stock}</span>
-                   </div>
-                 </button>
-               ))}
+               {filteredProducts.map(product => {
+                 const isLow = checkIsLowStock(product);
+                 return (
+                   <button 
+                     key={product.id} 
+                     onClick={() => addToCart(product)}
+                     className={`bg-white p-3 rounded-2xl shadow-sm border transition-all group text-left flex flex-col h-full ${isLow ? 'border-orange-200' : 'border-slate-100 hover:border-sky-200'}`}
+                   >
+                     <div className={`w-full aspect-square rounded-xl ${product.color} mb-3 flex items-center justify-center text-xl font-bold overflow-hidden relative`}>
+                       {product.imageUrl ? <img src={product.imageUrl} alt={product.name} className="w-full h-full object-cover transition-transform group-hover:scale-110" /> : product.name.charAt(0)}
+                       {isLow && <div className="absolute top-2 right-2 bg-orange-500 text-white text-[10px] px-2 py-0.5 rounded-full font-bold shadow-sm">Low</div>}
+                     </div>
+                     <h3 className="font-bold text-slate-800 text-sm line-clamp-2 mb-1">{product.name}</h3>
+                     <div className="mt-auto flex justify-between items-end">
+                       <span className="text-sky-600 font-bold">{formatCurrency(product.price, language)}</span>
+                       <span className={`text-[10px] px-1.5 py-0.5 rounded ${isLow ? 'text-orange-600 bg-orange-50' : 'text-slate-400 bg-slate-50'}`}>{t.pos_stock}: {product.stock}</span>
+                     </div>
+                   </button>
+                 );
+               })}
              </div>
            </div>
         </div>
