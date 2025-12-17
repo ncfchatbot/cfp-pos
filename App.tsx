@@ -151,6 +151,7 @@ const App: React.FC = () => {
   const [newOrderCustomer, setNewOrderCustomer] = useState({ name: '', phone: '', address: '' });
   const [newOrderShipping, setNewOrderShipping] = useState<{carrier: LogisticsProvider, branch: string}>({ carrier: 'None', branch: '' });
   const [tempOrderCart, setTempOrderCart] = useState<CartItem[]>([]);
+  const [newOrderDiscount, setNewOrderDiscount] = useState<{ type: 'amount' | 'percent', value: number }>({ type: 'amount', value: 0 });
   const [skuSearch, setSkuSearch] = useState('');
 
   // Report States
@@ -522,21 +523,52 @@ const App: React.FC = () => {
     setEditingOrder(order); setTempOrderCart([...order.items]);
     setNewOrderCustomer({ name: order.customerName || '', phone: order.customerPhone || '', address: order.customerAddress || '' });
     setNewOrderShipping({ carrier: order.shippingCarrier || 'None', branch: order.shippingBranch || '' });
+    // Load existing discount
+    setNewOrderDiscount({ 
+        type: order.discountType || 'amount', 
+        value: order.discountValue || 0 
+    });
     setIsOrderModalOpen(true);
   };
 
   const handleSaveOrderBackOffice = () => {
     if (tempOrderCart.length === 0) return;
-    const { items, total } = calculatedTempOrderCart;
+    const { items, total: subtotal } = calculatedTempOrderCart;
+    
+    // Calculate Discount
+    let discountAmount = 0;
+    if (newOrderDiscount.value > 0) {
+        if (newOrderDiscount.type === 'percent') { 
+            discountAmount = (subtotal * newOrderDiscount.value) / 100; 
+        } else { 
+            discountAmount = newOrderDiscount.value; 
+        }
+    }
+    const finalTotal = Math.max(0, subtotal - discountAmount);
+
     const orderData: SaleRecord = {
-        id: editingOrder ? editingOrder.id : uuidv4().slice(0, 8), items: [...items], total: total, date: editingOrder ? editingOrder.date : new Date().toLocaleString('th-TH'), timestamp: editingOrder ? editingOrder.timestamp : Date.now(), paymentMethod: editingOrder ? editingOrder.paymentMethod : 'transfer', status: editingOrder ? editingOrder.status : 'Pending', customerName: newOrderCustomer.name || 'Unknown', customerPhone: newOrderCustomer.phone, customerAddress: newOrderCustomer.address, shippingCarrier: newOrderShipping.carrier, shippingBranch: newOrderShipping.branch
+        id: editingOrder ? editingOrder.id : uuidv4().slice(0, 8), 
+        items: [...items], 
+        total: finalTotal,
+        subtotal: subtotal,
+        discountValue: discountAmount > 0 ? newOrderDiscount.value : undefined,
+        discountType: discountAmount > 0 ? newOrderDiscount.type : undefined,
+        date: editingOrder ? editingOrder.date : new Date().toLocaleString('th-TH'), 
+        timestamp: editingOrder ? editingOrder.timestamp : Date.now(), 
+        paymentMethod: editingOrder ? editingOrder.paymentMethod : 'transfer', 
+        status: editingOrder ? editingOrder.status : 'Pending', 
+        customerName: newOrderCustomer.name || 'Unknown', 
+        customerPhone: newOrderCustomer.phone, 
+        customerAddress: newOrderCustomer.address, 
+        shippingCarrier: newOrderShipping.carrier, 
+        shippingBranch: newOrderShipping.branch
     };
     if (editingOrder && !isCloudEnabled) {
          const productsRestored = products.map(p => { const soldItem = editingOrder.items.find(i => i.id === p.id); return soldItem ? { ...p, stock: p.stock + soldItem.quantity } : p; });
          setProducts(productsRestored);
     }
     saveOrderData(orderData);
-    setEditingOrder(null); setTempOrderCart([]); setNewOrderCustomer({ name: '', phone: '', address: '' }); setNewOrderShipping({ carrier: 'None', branch: '' }); setSkuSearch(''); setIsOrderModalOpen(false);
+    setEditingOrder(null); setTempOrderCart([]); setNewOrderCustomer({ name: '', phone: '', address: '' }); setNewOrderShipping({ carrier: 'None', branch: '' }); setSkuSearch(''); setIsOrderModalOpen(false); setNewOrderDiscount({ type: 'amount', value: 0 });
   };
 
   const updateOrderStatus = (id: string, status: OrderStatus) => { updateOrderStatusData(id, status); };
@@ -839,7 +871,7 @@ const App: React.FC = () => {
       <div className="p-4 md:p-6 h-full overflow-y-auto bg-slate-50/50">
         <div className="flex justify-between items-center mb-6">
            <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2"><ClipboardList className="text-sky-600"/> {t.order_title}</h2>
-           <button onClick={() => { setEditingOrder(null); setTempOrderCart([]); setIsOrderModalOpen(true); }} className="bg-sky-600 text-white px-3 py-2 rounded-lg shadow-sm hover:bg-sky-700 flex gap-2 text-sm"><Plus size={16}/> {t.order_create}</button>
+           <button onClick={() => { setEditingOrder(null); setTempOrderCart([]); setNewOrderDiscount({ type: 'amount', value: 0 }); setIsOrderModalOpen(true); }} className="bg-sky-600 text-white px-3 py-2 rounded-lg shadow-sm hover:bg-sky-700 flex gap-2 text-sm"><Plus size={16}/> {t.order_create}</button>
         </div>
         
         <div className="bg-white rounded-xl border border-slate-100 shadow-sm overflow-hidden">
@@ -849,7 +881,8 @@ const App: React.FC = () => {
                    <th className="px-4 py-3 font-bold text-xs uppercase">{t.order_id}</th>
                    <th className="px-4 py-3 font-bold text-xs uppercase">{t.order_date}</th>
                    <th className="px-4 py-3 font-bold text-xs uppercase">{t.order_customer}</th>
-                   <th className="px-4 py-3 font-bold text-xs uppercase">{t.order_total}</th>
+                   <th className="px-4 py-3 font-bold text-xs uppercase text-right">{t.pos_discount}</th>
+                   <th className="px-4 py-3 font-bold text-xs uppercase text-right">{t.order_total}</th>
                    <th className="px-4 py-3 font-bold text-xs uppercase">{t.order_status}</th>
                    <th className="px-4 py-3 font-bold text-xs uppercase text-center">{t.order_action}</th>
                 </tr>
@@ -860,7 +893,10 @@ const App: React.FC = () => {
                     <td className="px-4 py-3 font-mono text-slate-500">#{order.id}</td>
                     <td className="px-4 py-3 text-slate-600">{order.date}</td>
                     <td className="px-4 py-3 font-medium text-slate-800">{order.customerName}</td>
-                    <td className="px-4 py-3 font-bold text-slate-800">{formatCurrency(order.total, language)}</td>
+                    <td className="px-4 py-3 text-right text-red-500 font-medium">
+                        {order.discountValue ? (order.discountType === 'percent' ? `${order.discountValue}%` : formatCurrency(order.discountValue, language)) : '-'}
+                    </td>
+                    <td className="px-4 py-3 font-bold text-slate-800 text-right">{formatCurrency(order.total, language)}</td>
                     <td className="px-4 py-3">
                        <select 
                          value={order.status}
@@ -883,7 +919,7 @@ const App: React.FC = () => {
                     </td>
                   </tr>
                 ))}
-                {recentSales.length === 0 && <tr><td colSpan={6} className="text-center py-8 text-slate-400">{t.order_no_data}</td></tr>}
+                {recentSales.length === 0 && <tr><td colSpan={7} className="text-center py-8 text-slate-400">{t.order_no_data}</td></tr>}
               </tbody>
            </table>
         </div>
@@ -1319,8 +1355,45 @@ const App: React.FC = () => {
                       ))}
                       {tempOrderCart.length === 0 && <p className="text-center text-xs text-slate-400 py-8">{t.pos_empty_cart}</p>}
                    </div>
-                   <div className="mt-3 pt-3 border-t border-slate-200">
-                      <div className="flex justify-between font-bold text-lg mb-3"><span>{t.pos_net_total}</span><span className="text-sky-600">{formatCurrency(calculatedTempOrderCart.total, language)}</span></div>
+                   <div className="mt-3 pt-3 border-t border-slate-200 space-y-2">
+                      <div className="flex justify-between text-sm text-slate-500">
+                          <span>{t.pos_total_items}</span>
+                          <span>{formatCurrency(calculatedTempOrderCart.total, language)}</span>
+                      </div>
+                      
+                      {/* Back Office Discount Input */}
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold text-slate-500 whitespace-nowrap">{t.pos_discount}</span>
+                        <div className="flex-1 flex rounded-lg overflow-hidden border border-slate-200 bg-white">
+                            <input 
+                              type="number" 
+                              value={newOrderDiscount.value || ''} 
+                              onChange={(e) => setNewOrderDiscount({ ...newOrderDiscount, value: Number(e.target.value) })}
+                              placeholder="0"
+                              className="w-full p-1.5 text-xs outline-none text-right"
+                            />
+                            <button 
+                              onClick={() => setNewOrderDiscount(prev => ({ ...prev, type: prev.type === 'amount' ? 'percent' : 'amount' }))}
+                              className="px-2 text-[10px] font-bold bg-slate-100 text-slate-600 hover:bg-slate-200"
+                            >
+                              {newOrderDiscount.type === 'amount' ? '₭' : '%'}
+                            </button>
+                        </div>
+                      </div>
+
+                      <div className="flex justify-between font-bold text-lg mb-3 pt-2 border-t border-dashed border-slate-200">
+                          <span>{t.pos_net_total}</span>
+                          <span className="text-sky-600">
+                              {(() => {
+                                const { total } = calculatedTempOrderCart;
+                                let discount = 0;
+                                if (newOrderDiscount.value > 0) {
+                                    discount = newOrderDiscount.type === 'percent' ? (total * newOrderDiscount.value) / 100 : newOrderDiscount.value;
+                                }
+                                return formatCurrency(Math.max(0, total - discount), language);
+                              })()}
+                          </span>
+                      </div>
                       <div className="flex gap-2"><button onClick={() => setIsOrderModalOpen(false)} className="flex-1 py-2 border border-slate-200 rounded-lg text-sm font-bold text-slate-500 hover:bg-slate-50">{t.cancel}</button><button onClick={handleSaveOrderBackOffice} disabled={tempOrderCart.length === 0} className="flex-1 py-2 bg-sky-600 text-white rounded-lg text-sm font-bold hover:bg-sky-700 disabled:opacity-50">{editingOrder ? t.save : t.confirm}</button></div>
                    </div>
                 </div>
