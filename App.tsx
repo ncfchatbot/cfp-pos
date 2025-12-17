@@ -67,6 +67,17 @@ const App: React.FC = () => {
 
   const t = translations[language];
 
+  // Helper to translate OrderStatus values
+  const translateStatus = (status: OrderStatus) => {
+    switch(status) {
+      case 'Paid': return t.order_status_paid;
+      case 'Pending': return t.order_status_pending;
+      case 'Shipped': return t.order_status_shipped;
+      case 'Cancelled': return t.order_status_cancelled;
+      default: return status;
+    }
+  };
+
   // --- Data States ---
   const [products, setProducts] = useState<Product[]>([]);
   const [recentSales, setRecentSales] = useState<SaleRecord[]>([]);
@@ -697,7 +708,7 @@ const App: React.FC = () => {
                     {recentSales.slice(0, 5).map(s => (
                         <div key={s.id} className="flex justify-between items-center p-2 border-b border-slate-50 last:border-0">
                              <div><p className="text-sm font-bold text-slate-700">Order #{s.id}</p><p className="text-xs text-slate-400">{s.date} • {s.items.length} items</p></div>
-                             <div className="text-right"><p className="text-sm font-bold text-slate-800">{formatCurrency(s.total, language)}</p><span className={`text-[10px] px-2 py-0.5 rounded-full ${s.status === 'Paid' ? 'bg-green-100 text-green-700' : s.status === 'Cancelled' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'}`}>{s.status}</span></div>
+                             <div className="text-right"><p className="text-sm font-bold text-slate-800">{formatCurrency(s.total, language)}</p><span className={`text-[10px] px-2 py-0.5 rounded-full ${s.status === 'Paid' ? 'bg-green-100 text-green-700' : s.status === 'Cancelled' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'}`}>{translateStatus(s.status)}</span></div>
                         </div>
                     ))}
                     {recentSales.length === 0 && <div className="text-center py-8 text-slate-400 text-sm">{t.order_no_data}</div>}
@@ -901,15 +912,15 @@ const App: React.FC = () => {
                        <select 
                          value={order.status}
                          onChange={(e) => updateOrderStatus(order.id, e.target.value as OrderStatus)}
-                         className={`text-xs px-2 py-1 rounded-full border-none outline-none font-bold cursor-pointer
+                         className={`text-xs px-2 py-1 rounded-full border-none outline-none font-bold cursor-pointer transition-colors
                            ${order.status === 'Paid' ? 'bg-green-100 text-green-700' : 
                              order.status === 'Pending' ? 'bg-yellow-100 text-yellow-700' : 
                              order.status === 'Cancelled' ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'}`}
                        >
-                          <option value="Paid">Paid</option>
-                          <option value="Pending">Pending</option>
-                          <option value="Shipped">Shipped</option>
-                          <option value="Cancelled">Cancelled</option>
+                          <option value="Paid">{t.order_status_paid}</option>
+                          <option value="Pending">{t.order_status_pending}</option>
+                          <option value="Shipped">{t.order_status_shipped}</option>
+                          <option value="Cancelled">{t.order_status_cancelled}</option>
                        </select>
                     </td>
                     <td className="px-4 py-3 text-center flex justify-center gap-2">
@@ -1283,7 +1294,7 @@ const App: React.FC = () => {
       {/* Payment Modal */}
       {isPaymentModalOpen && (
         <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
-          <div className="bg-white rounded-3xl w-full max-w-sm p-6 shadow-2xl animate-in zoom-in-95 duration-200">
+          <div className="bg-white rounded-3xl w-full max-sm:max-w-full max-w-sm p-6 shadow-2xl animate-in zoom-in-95 duration-200">
              <div className="text-center mb-6">
                  <p className="text-slate-500 text-sm mb-1">{t.pay_total}</p>
                  <h3 className="text-4xl font-bold text-slate-800">
@@ -1332,70 +1343,237 @@ const App: React.FC = () => {
           </div>
       )}
 
-      {/* Create Order Modal (Back Office) */}
+      {/* Create Order Modal (Back Office) - Redesigned Layout */}
       {isOrderModalOpen && (
         <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl w-full max-w-4xl p-6 shadow-xl h-[85vh] flex flex-col md:flex-row gap-6 animate-in zoom-in-95">
-             <div className="flex-1 flex flex-col border-r border-slate-100 md:pr-6">
-                <h3 className="font-bold text-lg mb-4 flex items-center gap-2 text-slate-700"><Package size={20}/> {editingOrder ? 'Edit Order' : t.stock_add}</h3>
-                <div className="relative mb-4"><Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18}/><input autoFocus value={skuSearch} onChange={e => setSkuSearch(e.target.value)} placeholder={t.pos_search_placeholder} className="w-full pl-9 pr-4 py-2 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-sky-500 text-sm"/></div>
-                <div className="flex-1 overflow-y-auto space-y-2 pr-1">{products.filter(p => p.name.toLowerCase().includes(skuSearch.toLowerCase()) || p.code.toLowerCase().includes(skuSearch.toLowerCase())).map(p => (<div key={p.id} onClick={() => addToCart(p, true)} className="flex justify-between items-center p-3 border border-slate-100 rounded-xl hover:bg-sky-50 cursor-pointer transition-colors group"><div className="flex items-center gap-3"><div className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold ${p.color} overflow-hidden`}>{p.imageUrl ? <img src={p.imageUrl} className="w-full h-full object-cover"/> : p.name.charAt(0)}</div><div className="min-w-0"><p className="font-bold text-sm text-slate-700 truncate">{p.name}</p><p className="text-[10px] text-slate-400">{p.code} | Stock: {p.stock}</p></div></div><div className="font-bold text-sky-600 text-sm group-hover:scale-105 transition-transform">{formatCurrency(p.price, language)}</div></div>))}</div>
-             </div>
-             <div className="w-full md:w-80 flex flex-col">
-                <h3 className="font-bold text-lg mb-4 flex items-center gap-2 text-slate-700"><User size={20}/> {t.order_customer}</h3>
-                <div className="space-y-3 mb-4"><input placeholder={t.order_customer} value={newOrderCustomer.name} onChange={e => setNewOrderCustomer({...newOrderCustomer, name: e.target.value})} className="w-full p-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-sky-500"/><div className="flex gap-2"><input placeholder={t.setting_phone} value={newOrderCustomer.phone} onChange={e => setNewOrderCustomer({...newOrderCustomer, phone: e.target.value})} className="w-1/2 p-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-sky-500"/><select value={newOrderShipping.carrier} onChange={e => setNewOrderShipping({...newOrderShipping, carrier: e.target.value as LogisticsProvider})} className="w-1/2 p-2 text-sm border border-slate-200 rounded-lg outline-none bg-white">{LOGISTICS_PROVIDERS.map(l => <option key={l.value} value={l.value}>{l.label}</option>)}</select></div><textarea placeholder={t.setting_address} rows={2} value={newOrderCustomer.address} onChange={e => setNewOrderCustomer({...newOrderCustomer, address: e.target.value})} className="w-full p-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-sky-500 resize-none"/></div>
-                <div className="flex-1 bg-slate-50 rounded-xl p-3 border border-slate-100 flex flex-col min-h-0">
-                   <h4 className="font-bold text-xs text-slate-500 uppercase mb-2">{t.pos_items} ({tempOrderCart.length})</h4>
-                   <div className="flex-1 overflow-y-auto space-y-2 pr-1">
-                      {calculatedTempOrderCart.items.map((item, idx) => (
-                         <div key={`${item.id}-${idx}`} className="bg-white p-2 rounded-lg border border-slate-100 flex justify-between items-center shadow-sm">
-                            <div className="min-w-0 flex-1 mr-2"><p className="text-xs font-bold truncate">{item.name} {item.isFree && '(Free)'}</p><p className="text-[10px] text-slate-400">{item.quantity} x {formatCurrency(item.price, language)}</p></div>
-                            <div className="flex items-center gap-1 shrink-0">{!item.isFree && <button onClick={() => updateQuantity(item.id, -1, true)} className="p-1 hover:bg-slate-100 rounded text-slate-400"><Minus size={12}/></button>}<input type="number" min="1" value={item.quantity} onChange={(e) => setItemQuantity(item.id, parseInt(e.target.value) || 1, true)} className="w-12 text-center text-xs font-bold border border-slate-200 rounded mx-1 p-1 outline-none focus:border-sky-500"/>{!item.isFree && <button onClick={() => updateQuantity(item.id, 1, true)} className="p-1 hover:bg-slate-100 rounded text-slate-400"><Plus size={12}/></button>}</div>
-                         </div>
-                      ))}
-                      {tempOrderCart.length === 0 && <p className="text-center text-xs text-slate-400 py-8">{t.pos_empty_cart}</p>}
-                   </div>
-                   <div className="mt-3 pt-3 border-t border-slate-200 space-y-2">
-                      <div className="flex justify-between text-sm text-slate-500">
-                          <span>{t.pos_total_items}</span>
-                          <span>{formatCurrency(calculatedTempOrderCart.total, language)}</span>
-                      </div>
-                      
-                      {/* Back Office Discount Input */}
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-bold text-slate-500 whitespace-nowrap">{t.pos_discount}</span>
-                        <div className="flex-1 flex rounded-lg overflow-hidden border border-slate-200 bg-white">
-                            <input 
-                              type="number" 
-                              value={newOrderDiscount.value || ''} 
-                              onChange={(e) => setNewOrderDiscount({ ...newOrderDiscount, value: Number(e.target.value) })}
-                              placeholder="0"
-                              className="w-full p-1.5 text-xs outline-none text-right"
-                            />
-                            <button 
-                              onClick={() => setNewOrderDiscount(prev => ({ ...prev, type: prev.type === 'amount' ? 'percent' : 'amount' }))}
-                              className="px-2 text-[10px] font-bold bg-slate-100 text-slate-600 hover:bg-slate-200"
-                            >
-                              {newOrderDiscount.type === 'amount' ? '₭' : '%'}
-                            </button>
+          <div className="bg-white rounded-2xl w-full max-w-6xl p-0 shadow-2xl h-[90vh] flex flex-col md:flex-row overflow-hidden animate-in zoom-in-95">
+             
+             {/* Left Column: Product Selection */}
+             <div className="w-full md:w-1/3 lg:w-2/5 flex flex-col border-r border-slate-100 bg-slate-50/30">
+                <div className="p-4 border-b border-slate-100">
+                    <h3 className="font-bold text-lg mb-4 flex items-center gap-2 text-slate-700">
+                        <Package size={20} className="text-sky-600"/> {editingOrder ? 'Edit Order' : t.stock_add}
+                    </h3>
+                    <div className="relative">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18}/>
+                        <input 
+                          autoFocus 
+                          value={skuSearch} 
+                          onChange={e => setSkuSearch(e.target.value)} 
+                          placeholder={t.pos_search_placeholder} 
+                          className="w-full pl-10 pr-4 py-3 bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-sky-500 text-sm shadow-sm"
+                        />
+                    </div>
+                </div>
+                <div className="flex-1 overflow-y-auto p-4 space-y-2">
+                    {products
+                      .filter(p => p.name.toLowerCase().includes(skuSearch.toLowerCase()) || p.code.toLowerCase().includes(skuSearch.toLowerCase()))
+                      .map(p => (
+                        <div 
+                          key={p.id} 
+                          onClick={() => addToCart(p, true)} 
+                          className="flex justify-between items-center p-3 bg-white border border-slate-100 rounded-xl hover:border-sky-300 hover:shadow-md cursor-pointer transition-all group"
+                        >
+                            <div className="flex items-center gap-3">
+                                <div className={`w-10 h-10 rounded-lg flex items-center justify-center text-sm font-bold ${p.color} overflow-hidden shadow-inner`}>
+                                    {p.imageUrl ? <img src={p.imageUrl} className="w-full h-full object-cover"/> : p.name.charAt(0)}
+                                </div>
+                                <div className="min-w-0">
+                                    <p className="font-bold text-sm text-slate-700 truncate">{p.name}</p>
+                                    <p className="text-[10px] text-slate-400 font-mono">{p.code} • {t.pos_stock}: {p.stock}</p>
+                                </div>
+                            </div>
+                            <div className="font-bold text-sky-600 text-sm whitespace-nowrap group-hover:scale-105 transition-transform">
+                                {formatCurrency(p.price, language)}
+                            </div>
                         </div>
-                      </div>
+                    ))}
+                </div>
+             </div>
 
-                      <div className="flex justify-between font-bold text-lg mb-3 pt-2 border-t border-dashed border-slate-200">
-                          <span>{t.pos_net_total}</span>
-                          <span className="text-sky-600">
-                              {(() => {
-                                const { total } = calculatedTempOrderCart;
-                                let discount = 0;
-                                if (newOrderDiscount.value > 0) {
-                                    discount = newOrderDiscount.type === 'percent' ? (total * newOrderDiscount.value) / 100 : newOrderDiscount.value;
-                                }
-                                return formatCurrency(Math.max(0, total - discount), language);
-                              })()}
-                          </span>
-                      </div>
-                      <div className="flex gap-2"><button onClick={() => setIsOrderModalOpen(false)} className="flex-1 py-2 border border-slate-200 rounded-lg text-sm font-bold text-slate-500 hover:bg-slate-50">{t.cancel}</button><button onClick={handleSaveOrderBackOffice} disabled={tempOrderCart.length === 0} className="flex-1 py-2 bg-sky-600 text-white rounded-lg text-sm font-bold hover:bg-sky-700 disabled:opacity-50">{editingOrder ? t.save : t.confirm}</button></div>
-                   </div>
+             {/* Right Column: Customer Info & Cart Summary */}
+             <div className="flex-1 flex flex-col bg-white">
+                
+                {/* Top Section: Customer & Shipping */}
+                <div className="p-4 border-b border-slate-100 grid grid-cols-1 lg:grid-cols-2 gap-4">
+                    <div className="space-y-3">
+                        <div className="flex items-center gap-2 text-slate-500 mb-1">
+                            <User size={16}/> <span className="text-xs font-bold uppercase tracking-wider">{t.order_customer}</span>
+                        </div>
+                        <input 
+                          placeholder={t.order_customer} 
+                          value={newOrderCustomer.name} 
+                          onChange={e => setNewOrderCustomer({...newOrderCustomer, name: e.target.value})} 
+                          className="w-full p-2.5 text-sm border border-slate-200 rounded-xl outline-none focus:border-sky-500 shadow-sm bg-slate-50/50"
+                        />
+                        <div className="flex gap-2">
+                            <input 
+                              placeholder={t.setting_phone} 
+                              value={newOrderCustomer.phone} 
+                              onChange={e => setNewOrderCustomer({...newOrderCustomer, phone: e.target.value})} 
+                              className="w-1/2 p-2.5 text-sm border border-slate-200 rounded-xl outline-none focus:border-sky-500 shadow-sm bg-slate-50/50"
+                            />
+                            <select 
+                              value={newOrderShipping.carrier} 
+                              onChange={e => setNewOrderShipping({...newOrderShipping, carrier: e.target.value as LogisticsProvider})} 
+                              className="w-1/2 p-2.5 text-sm border border-slate-200 rounded-xl outline-none bg-slate-50/50 shadow-sm"
+                            >
+                                {LOGISTICS_PROVIDERS.map(l => <option key={l.value} value={l.value}>{l.label}</option>)}
+                            </select>
+                        </div>
+                    </div>
+                    <div className="space-y-3">
+                        <div className="flex items-center gap-2 text-slate-500 mb-1">
+                            <MapPin size={16}/> <span className="text-xs font-bold uppercase tracking-wider">{t.setting_address}</span>
+                        </div>
+                        <textarea 
+                          placeholder={t.setting_address} 
+                          rows={3} 
+                          value={newOrderCustomer.address} 
+                          onChange={e => setNewOrderCustomer({...newOrderCustomer, address: e.target.value})} 
+                          className="w-full p-2.5 text-sm border border-slate-200 rounded-xl outline-none focus:border-sky-500 shadow-sm bg-slate-50/50 resize-none h-[92px]"
+                        />
+                    </div>
+                </div>
+
+                {/* Middle Section: Selected Items List (The Cart) */}
+                <div className="flex-1 flex flex-col min-h-0 bg-slate-50/20">
+                    <div className="px-4 py-3 border-b border-slate-100 flex justify-between items-center">
+                        <h4 className="font-bold text-xs text-slate-500 uppercase tracking-widest flex items-center gap-2">
+                           <ShoppingCart size={14}/> {t.pos_cart_title} ({tempOrderCart.length})
+                        </h4>
+                        <button onClick={() => setTempOrderCart([])} className="text-[10px] font-bold text-red-400 hover:text-red-600">LAK {t.pos_clear_cart}</button>
+                    </div>
+                    
+                    <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                        {calculatedTempOrderCart.items.map((item, idx) => (
+                           <div key={`${item.id}-${idx}`} className="bg-white p-4 rounded-2xl border border-slate-100 flex flex-wrap justify-between items-center shadow-sm hover:shadow-md transition-shadow">
+                                <div className="flex-1 min-w-[200px]">
+                                    <div className="flex items-center gap-3">
+                                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-sm font-bold ${item.color} shadow-inner`}>
+                                            {item.imageUrl ? <img src={item.imageUrl} className="w-full h-full object-cover"/> : item.name.charAt(0)}
+                                        </div>
+                                        <div>
+                                            <p className="text-sm font-bold text-slate-800">{item.name} {item.isFree && <span className="ml-1 text-[10px] bg-green-100 text-green-600 px-1.5 py-0.5 rounded-full">Free</span>}</p>
+                                            <p className="text-xs text-slate-400 font-medium">{formatCurrency(item.price, language)}</p>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div className="flex items-center gap-6 mt-2 sm:mt-0">
+                                    <div className="flex items-center gap-3 bg-slate-100 p-1.5 rounded-xl border border-slate-200">
+                                        {!item.isFree && (
+                                            <button 
+                                              onClick={() => updateQuantity(item.id, -1, true)} 
+                                              className="w-8 h-8 flex items-center justify-center bg-white rounded-lg shadow-sm hover:text-red-500 transition-colors"
+                                            >
+                                                <Minus size={14}/>
+                                            </button>
+                                        )}
+                                        
+                                        <div className="relative flex flex-col items-center">
+                                            <input 
+                                              type="number" 
+                                              min="1" 
+                                              value={item.quantity} 
+                                              onChange={(e) => setItemQuantity(item.id, parseInt(e.target.value) || 1, true)} 
+                                              className="w-20 text-center text-lg font-black bg-transparent outline-none text-sky-700"
+                                            />
+                                            <span className="text-[9px] font-bold text-slate-400 uppercase tracking-tighter -mt-1">{t.pos_items}</span>
+                                        </div>
+
+                                        {!item.isFree && (
+                                            <button 
+                                              onClick={() => updateQuantity(item.id, 1, true)} 
+                                              className="w-8 h-8 flex items-center justify-center bg-white rounded-lg shadow-sm hover:text-sky-500 transition-colors"
+                                            >
+                                                <Plus size={14}/>
+                                            </button>
+                                        )}
+                                    </div>
+
+                                    <div className="text-right min-w-[100px]">
+                                        <p className="text-[10px] font-bold text-slate-400 uppercase">{t.pos_net_total}</p>
+                                        <p className="font-bold text-slate-800">{formatCurrency(item.price * item.quantity, language)}</p>
+                                    </div>
+                                    
+                                    {!item.isFree && (
+                                      <button onClick={() => removeFromCart(item.id, true)} className="p-2 text-slate-300 hover:text-red-500 transition-colors">
+                                        <Trash2 size={18} />
+                                      </button>
+                                    )}
+                                </div>
+                           </div>
+                        ))}
+                        {tempOrderCart.length === 0 && (
+                            <div className="h-full flex flex-col items-center justify-center text-slate-300 py-12">
+                                <ShoppingCart size={48} className="mb-4 opacity-20"/>
+                                <p className="text-sm font-medium">{t.pos_empty_cart}</p>
+                            </div>
+                        )}
+                    </div>
+                </div>
+
+                {/* Bottom Section: Order Totals & Save Actions */}
+                <div className="p-6 bg-white border-t border-slate-100 space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div className="space-y-3">
+                            <div className="flex items-center gap-3">
+                                <span className="text-xs font-bold text-slate-500 whitespace-nowrap w-24 uppercase tracking-wider">{t.pos_discount}</span>
+                                <div className="flex-1 flex rounded-xl overflow-hidden border border-slate-200 bg-slate-50 h-11">
+                                    <input 
+                                      type="number" 
+                                      value={newOrderDiscount.value || ''} 
+                                      onChange={(e) => setNewOrderDiscount({ ...newOrderDiscount, value: Number(e.target.value) })}
+                                      placeholder="0"
+                                      className="w-full px-4 text-sm font-bold outline-none bg-transparent"
+                                    />
+                                    <button 
+                                      onClick={() => setNewOrderDiscount(prev => ({ ...prev, type: prev.type === 'amount' ? 'percent' : 'amount' }))}
+                                      className="px-6 text-sm font-black bg-slate-200 text-slate-600 hover:bg-slate-300 transition-colors border-l border-slate-300"
+                                    >
+                                      {newOrderDiscount.type === 'amount' ? '₭' : '%'}
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="bg-sky-50 p-4 rounded-2xl flex flex-col items-end">
+                            <div className="flex justify-between w-full text-slate-500 text-xs font-bold mb-1">
+                                <span>{t.pos_total_items}</span>
+                                <span className="font-mono">{formatCurrency(calculatedTempOrderCart.total, language)}</span>
+                            </div>
+                            <div className="flex justify-between w-full text-slate-700 text-sm font-black border-t border-sky-100 pt-2 mt-2">
+                                <span className="text-lg uppercase tracking-tight">{t.pos_net_total}</span>
+                                <span className="text-3xl text-sky-600 font-black">
+                                    {(() => {
+                                        const { total } = calculatedTempOrderCart;
+                                        let discount = 0;
+                                        if (newOrderDiscount.value > 0) {
+                                            discount = newOrderDiscount.type === 'percent' ? (total * newOrderDiscount.value) / 100 : newOrderDiscount.value;
+                                        }
+                                        return formatCurrency(Math.max(0, total - discount), language);
+                                    })()}
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="flex gap-3">
+                        <button 
+                          onClick={() => setIsOrderModalOpen(false)} 
+                          className="flex-1 py-4 border-2 border-slate-100 rounded-2xl text-sm font-bold text-slate-400 hover:bg-slate-50 hover:text-slate-600 transition-all uppercase tracking-widest"
+                        >
+                            {t.cancel}
+                        </button>
+                        <button 
+                          onClick={handleSaveOrderBackOffice} 
+                          disabled={tempOrderCart.length === 0} 
+                          className="flex-[2] py-4 bg-sky-600 text-white rounded-2xl text-base font-black hover:bg-sky-700 shadow-xl shadow-sky-100 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed transition-all uppercase tracking-widest flex items-center justify-center gap-2"
+                        >
+                            <Check size={20}/> {editingOrder ? t.save : t.confirm}
+                        </button>
+                    </div>
                 </div>
              </div>
           </div>
