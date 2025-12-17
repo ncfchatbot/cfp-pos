@@ -1064,6 +1064,7 @@ const App: React.FC = () => {
                           <li>เมนู Project Settings &gt; General &gt; เลื่อนลงมาล่างสุด กดไอคอน &lt;/&gt; (Web)</li>
                           <li>ตั้งชื่อแอพ กด Register แล้วคัดลอก "const firebaseConfig = &#123; ... &#125;" เฉพาะในปีกกา</li>
                           <li>สร้าง Firestore Database ในเมนู Build &gt; Firestore Database (เลือก Test mode)</li>
+                          <li className="text-red-500 font-bold mt-1">สำคัญ: หากติดปัญหา Billing (ต้องผูกบัตร) ให้ข้ามส่วนนี้ไป แอพยังใช้งานได้ปกติ (ข้อมูลเก็บในเครื่องนี้)</li>
                       </ol>
                   </div>
                   <textarea 
