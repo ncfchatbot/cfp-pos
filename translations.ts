@@ -33,11 +33,16 @@ export const translations = {
     pos_clear_cart: 'ລ້າງກະຕ່າ',
     stock_title: 'ຈັດການສາງ',
     stock_add: 'ເພີ່ມສິນຄ້າ',
+    stock_import_csv: 'ນຳເຂົ້າ CSV',
     setting_title: 'ຕັ້ງຄ່າ',
     setting_import_product: 'ນຳເຂົ້າສິນຄ້າ',
     setting_clear_all: 'ລຶບຂໍ້ມູນທັງໝົດ',
     promo_add: 'ສ້າງໂປຣໂມຊັ່ນ',
     promo_no_data: 'ຍັງບໍ່ມີໂປຣໂມຊັ່ນ',
+    promo_name: 'ຊື່ໂປຣໂມຊັ່ນ',
+    promo_type: 'ປະເພດ',
+    promo_buy_get: 'ຊື້ X ແຖມ Y',
+    promo_tiered: 'ລາຄາຕາມຈຳນວນ',
     success: 'ສຳເລັດ'
   },
   th: {
@@ -71,11 +76,16 @@ export const translations = {
     pos_clear_cart: 'ล้างตะกร้า',
     stock_title: 'จัดการคลังสินค้า',
     stock_add: 'เพิ่มสินค้า',
+    stock_import_csv: 'นำเข้า CSV',
     setting_title: 'ตั้งค่าร้านค้า',
     setting_import_product: 'นำเข้าสินค้า (CSV)',
     setting_clear_all: 'ล้างข้อมูลทั้งหมด',
     promo_add: 'สร้างโปรโมชั่น',
     promo_no_data: 'ยังไม่มีโปรโมชั่น',
+    promo_name: 'ชื่อโปรโมชั่น',
+    promo_type: 'ประเภทโปรโมชั่น',
+    promo_buy_get: 'ซื้อ X แถม Y',
+    promo_tiered: 'ส่วนลดตามจำนวน (Tier)',
     success: 'สำเร็จ'
   },
   en: {
@@ -109,11 +119,16 @@ export const translations = {
     pos_clear_cart: 'Clear',
     stock_title: 'Inventory',
     stock_add: 'Add Product',
+    stock_import_csv: 'Import CSV',
     setting_title: 'Settings',
     setting_import_product: 'Import Products',
     setting_clear_all: 'Factory Reset',
     promo_add: 'Add Promotion',
     promo_no_data: 'No Promotions',
+    promo_name: 'Promo Name',
+    promo_type: 'Promo Type',
+    promo_buy_get: 'Buy X Get Y',
+    promo_tiered: 'Tiered Pricing',
     success: 'Success'
   }
 };

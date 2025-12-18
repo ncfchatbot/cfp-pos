@@ -6,7 +6,7 @@ import {
   LayoutDashboard, Settings, UploadCloud, FileDown, ImagePlus, AlertTriangle, TrendingUp, DollarSign, Package,
   ClipboardList, Truck, MapPin, Phone, User, X, BarChart3, Wallet, PieChart, ChevronRight, History, DatabaseBackup,
   Calendar, Gift, Tag, RefreshCw, Eraser, Cloud, CloudOff, Info, ArrowUpCircle, Filter, Wifi,
-  Download, Upload, Smartphone, Percent, Box, TruckIcon, CheckCircle2, Clock
+  Download, Upload, Smartphone, Percent, Box, TruckIcon, CheckCircle2, Clock, FileSpreadsheet, ChevronDown
 } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import { streamResponse } from './services/gemini';
@@ -35,6 +35,15 @@ const INITIAL_PROFILE: StoreProfile = {
 
 const ORDER_STATUS_STEPS: OrderStatus[] = [
   'Pending', 'Paid', 'Packing', 'Ready', 'Shipped', 'Delivered', 'Completed'
+];
+
+const COLORS = [
+  'bg-sky-100 text-sky-600',
+  'bg-amber-100 text-amber-600',
+  'bg-emerald-100 text-emerald-600',
+  'bg-rose-100 text-rose-600',
+  'bg-purple-100 text-purple-600',
+  'bg-indigo-100 text-indigo-600'
 ];
 
 const App: React.FC = () => {
@@ -70,6 +79,7 @@ const App: React.FC = () => {
   const [currentOrder, setCurrentOrder] = useState<SaleRecord | null>(null);
 
   const logoInputRef = useRef<HTMLInputElement>(null);
+  const csvInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     localStorage.setItem('pos_language', language);
@@ -107,10 +117,65 @@ const App: React.FC = () => {
 
   const saveProductData = async (product: Product) => {
     if (isCloudEnabled && db) await setDoc(doc(db, 'products', product.id), product);
-    else setProducts(prev => {
-      const exists = prev.find(p => p.id === product.id);
-      return exists ? prev.map(p => p.id === product.id ? product : p) : [...prev, product];
-    });
+    else {
+      setProducts(prev => {
+        const exists = prev.find(p => p.id === product.id);
+        return exists ? prev.map(p => p.id === product.id ? product : p) : [...prev, product];
+      });
+    }
+  };
+
+  const savePromotionData = async (promo: Promotion) => {
+    if (isCloudEnabled && db) await setDoc(doc(db, 'promotions', promo.id), promo);
+    else {
+      setPromotions(prev => {
+        const exists = prev.find(p => p.id === promo.id);
+        return exists ? prev.map(p => p.id === promo.id ? promo : p) : [...prev, promo];
+      });
+    }
+  };
+
+  const handleImportCSV = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      const text = event.target?.result as string;
+      const rows = text.split(/\r?\n/).filter(row => row.trim() !== '');
+      if (rows.length < 1) return;
+
+      const importedProducts: Product[] = [];
+      const startIdx = rows[0].toLowerCase().includes('name') ? 1 : 0;
+
+      for (let i = startIdx; i < rows.length; i++) {
+        // Handle CSV split correctly even if values contain commas (basic quoted CSV support)
+        const cols = rows[i].match(/(".*?"|[^",\s]+)(?=\s*,|\s*$)/g) || rows[i].split(',').map(c => c.trim());
+        
+        if (cols.length >= 2) {
+          const product: Product = {
+            id: uuidv4(),
+            name: cols[0]?.replace(/"/g, ''),
+            code: (cols[1]?.replace(/"/g, '')) || `SKU-${Math.random().toString(36).substr(2, 5).toUpperCase()}`,
+            category: (cols[2]?.replace(/"/g, '')) || 'General',
+            cost: Number(cols[3]) || 0,
+            price: Number(cols[4]) || 0,
+            stock: Number(cols[5]) || 0,
+            color: COLORS[Math.floor(Math.random() * COLORS.length)],
+          };
+          importedProducts.push(product);
+          await saveProductData(product);
+        }
+      }
+      
+      if (!isCloudEnabled) {
+        setProducts(prev => [...prev, ...importedProducts]);
+      }
+      
+      alert(`Successfully imported ${importedProducts.length} items`);
+      if (csvInputRef.current) csvInputRef.current.value = '';
+    };
+    reader.readAsText(file);
   };
 
   const saveOrderData = async (order: SaleRecord) => {
@@ -175,6 +240,26 @@ const App: React.FC = () => {
     } finally {
       setIsChatLoading(false);
     }
+  };
+
+  const processPayment = async () => {
+    if (cart.length === 0) return;
+    const newOrder: SaleRecord = {
+      id: uuidv4(),
+      items: [...cart],
+      total: calculatedCart.total,
+      subtotal: calculatedCart.subtotal,
+      date: new Date().toLocaleString(),
+      timestamp: Date.now(),
+      paymentMethod,
+      status: 'Paid',
+      customerName: language === 'th' ? 'ลูกค้าทั่วไป' : (language === 'en' ? 'Walk-in' : 'ລູກຄ້າທົ່ວໄປ'),
+    };
+    await saveOrderData(newOrder);
+    setCurrentOrder(newOrder);
+    setCart([]);
+    setIsPaymentModalOpen(false);
+    setShowReceipt(true);
   };
 
   const renderDashboard = () => {
@@ -360,7 +445,7 @@ const App: React.FC = () => {
                             </select>
                         </div>
                     </div>
-                    {/* 7-Step Horizontal Progress Tracker */}
+                    {/* 7-Step Horizontal Tracker */}
                     <div className="relative mb-10 px-2 flex items-center">
                         <div className="absolute left-0 right-0 h-1 bg-slate-100 z-0"></div>
                         <div 
@@ -419,14 +504,22 @@ const App: React.FC = () => {
 
   const renderStock = () => (
     <div className="p-4 md:p-6 h-full overflow-y-auto bg-slate-50/50">
-        <div className="flex justify-between items-center mb-8">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8">
             <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2"><Package className="text-sky-600" /> {t.stock_title}</h2>
-            <button 
-              onClick={() => { setEditingProduct(null); setIsProductModalOpen(true); }} 
-              className="bg-sky-600 text-white px-5 py-2.5 rounded-2xl text-xs font-bold flex items-center gap-2 shadow-lg shadow-sky-100 active:scale-95 transition-all"
-            >
-              <Plus size={16}/> {t.stock_add}
-            </button>
+            <div className="flex gap-2 w-full sm:w-auto">
+                <button 
+                  onClick={() => csvInputRef.current?.click()} 
+                  className="flex-1 sm:flex-none bg-emerald-50 text-emerald-600 px-5 py-2.5 rounded-2xl text-xs font-bold flex items-center justify-center gap-2 border border-emerald-100 transition-all hover:bg-emerald-100"
+                >
+                  <FileSpreadsheet size={16}/> {t.stock_import_csv}
+                </button>
+                <button 
+                  onClick={() => { setEditingProduct(null); setIsProductModalOpen(true); }} 
+                  className="flex-1 sm:flex-none bg-sky-600 text-white px-5 py-2.5 rounded-2xl text-xs font-bold flex items-center justify-center gap-2 shadow-lg shadow-sky-100 transition-all hover:bg-sky-700"
+                >
+                  <Plus size={16}/> {t.stock_add}
+                </button>
+            </div>
         </div>
         <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden">
             <div className="overflow-x-auto">
@@ -478,6 +571,71 @@ const App: React.FC = () => {
               </div>
             )}
         </div>
+    </div>
+  );
+
+  const handleSavePromotion = (e: React.FormEvent) => {
+    e.preventDefault();
+    const formData = new FormData(e.target as HTMLFormElement);
+    const newPromo: Promotion = {
+      id: editingPromotion?.id || uuidv4(),
+      name: formData.get('name') as string,
+      type: formData.get('type') as PromotionType,
+      isActive: true,
+      targetSkus: (formData.get('skus') as string).split(',').map(s => s.trim()),
+      requiredQty: Number(formData.get('requiredQty')) || 1,
+      freeQty: Number(formData.get('freeQty')) || 0,
+      freeSku: formData.get('freeSku') as string,
+    };
+    savePromotionData(newPromo);
+    setIsPromotionModalOpen(false);
+  };
+
+  const renderPromotions = () => (
+    <div className="p-4 md:p-6 h-full overflow-y-auto bg-slate-50/50">
+      <div className="flex justify-between items-center mb-8">
+        <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2"><Tag className="text-sky-600" /> {t.menu_promotions}</h2>
+        <button 
+          onClick={() => { setEditingPromotion(null); setIsPromotionModalOpen(true); }} 
+          className="bg-sky-600 text-white px-5 py-2.5 rounded-2xl text-xs font-bold flex items-center gap-2 shadow-lg shadow-sky-100 transition-all hover:bg-sky-700"
+        >
+          <Plus size={16}/> {t.promo_add}
+        </button>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {promotions.map(p => (
+          <div key={p.id} className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm hover:shadow-md transition-all relative overflow-hidden group">
+            <div className={`absolute top-0 right-0 p-1 px-3 text-[8px] font-bold uppercase rounded-bl-xl ${p.isActive ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-400'}`}>
+              {p.isActive ? 'Active' : 'Disabled'}
+            </div>
+            <div className="bg-sky-50 text-sky-600 w-12 h-12 rounded-2xl flex items-center justify-center mb-4 group-hover:bg-sky-600 group-hover:text-white transition-all">
+              <Gift size={24} />
+            </div>
+            <h3 className="font-bold text-slate-800 text-lg mb-2">{p.name}</h3>
+            <p className="text-xs text-slate-400 mb-6 uppercase tracking-wider font-bold">
+              {p.type === 'buy_x_get_y' ? t.promo_buy_get : t.promo_tiered}
+            </p>
+            <div className="flex justify-between items-center border-t border-slate-50 pt-4">
+              <button 
+                onClick={() => { setEditingPromotion(p); setIsPromotionModalOpen(true); }}
+                className="text-sky-600 font-bold text-xs hover:underline"
+              >
+                Edit Plan
+              </button>
+              <button onClick={() => {
+                if(confirm('Delete promotion?')) setPromotions(prev => prev.filter(it => it.id !== p.id));
+              }} className="text-slate-300 hover:text-red-500 transition-colors"><Trash2 size={16}/></button>
+            </div>
+          </div>
+        ))}
+        {promotions.length === 0 && (
+          <div className="col-span-full py-24 text-center text-slate-300 opacity-50 flex flex-col items-center">
+            <Gift size={64} className="mb-4" />
+            <h3 className="font-bold text-slate-400 uppercase tracking-widest text-sm">{t.promo_no_data}</h3>
+          </div>
+        )}
+      </div>
     </div>
   );
 
@@ -535,47 +693,6 @@ const App: React.FC = () => {
       </div>
     );
   };
-
-  const renderPromotions = () => (
-    <div className="p-4 md:p-6 h-full overflow-y-auto bg-slate-50/50">
-      <div className="flex justify-between items-center mb-8">
-        <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2"><Tag className="text-sky-600" /> {t.menu_promotions}</h2>
-        <button 
-          onClick={() => { setEditingPromotion(null); setIsPromotionModalOpen(true); }} 
-          className="bg-sky-600 text-white px-5 py-2.5 rounded-2xl text-xs font-bold flex items-center gap-2 shadow-lg shadow-sky-100 transition-all"
-        >
-          <Plus size={16}/> {t.promo_add}
-        </button>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {promotions.map(p => (
-          <div key={p.id} className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm hover:shadow-md transition-all relative overflow-hidden group">
-            <div className={`absolute top-0 right-0 p-1 px-3 text-[8px] font-bold uppercase rounded-bl-xl ${p.isActive ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-400'}`}>
-              {p.isActive ? 'Active' : 'Disabled'}
-            </div>
-            <div className="bg-sky-50 text-sky-600 w-12 h-12 rounded-2xl flex items-center justify-center mb-4 group-hover:bg-sky-600 group-hover:text-white transition-all">
-              <Gift size={24} />
-            </div>
-            <h3 className="font-bold text-slate-800 text-lg mb-2">{p.name}</h3>
-            <p className="text-xs text-slate-400 mb-6 uppercase tracking-wider font-bold">{p.type === 'buy_x_get_y' ? 'Buy 1 Get 1' : 'Volume Discount'}</p>
-            <div className="flex justify-between items-center border-t border-slate-50 pt-4">
-              <button onClick={() => { setEditingPromotion(p); setIsPromotionModalOpen(true); }} className="text-sky-600 font-bold text-xs hover:underline">Edit Plan</button>
-              <button onClick={() => {
-                if(confirm('Delete promotion?')) setPromotions(prev => prev.filter(it => it.id !== p.id));
-              }} className="text-slate-300 hover:text-red-500 transition-colors"><Trash2 size={16}/></button>
-            </div>
-          </div>
-        ))}
-        {promotions.length === 0 && (
-          <div className="col-span-full py-24 text-center">
-            <Gift size={64} className="mx-auto text-slate-200 mb-4" />
-            <h3 className="font-bold text-slate-400 uppercase tracking-widest text-sm">{t.promo_no_data}</h3>
-          </div>
-        )}
-      </div>
-    </div>
-  );
 
   const renderSettings = () => (
     <div className="p-4 md:p-6 h-full overflow-y-auto bg-slate-50/50">
@@ -635,8 +752,8 @@ const App: React.FC = () => {
                 <button className="p-6 bg-slate-50 rounded-2xl hover:bg-sky-50 border border-slate-100 hover:border-sky-200 flex flex-col items-center gap-3 transition-all">
                   <Download className="text-sky-600"/><span className="text-[10px] font-bold uppercase tracking-widest">Backup</span>
                 </button>
-                <button className="p-6 bg-slate-50 rounded-2xl hover:bg-sky-50 border border-slate-100 hover:border-sky-200 flex flex-col items-center gap-3 transition-all">
-                  <Upload className="text-sky-600"/><span className="text-[10px] font-bold uppercase tracking-widest">Restore</span>
+                <button onClick={() => csvInputRef.current?.click()} className="p-6 bg-slate-50 rounded-2xl hover:bg-sky-50 border border-slate-100 hover:border-sky-200 flex flex-col items-center gap-3 transition-all">
+                  <Upload className="text-sky-600"/><span className="text-[10px] font-bold uppercase tracking-widest">Import CSV</span>
                 </button>
                 <button 
                   onClick={() => { if(confirm('Factory Reset?')) { localStorage.clear(); window.location.reload(); } }} 
@@ -691,26 +808,6 @@ const App: React.FC = () => {
     </div>
   );
 
-  const processPayment = async () => {
-    if (cart.length === 0) return;
-    const newOrder: SaleRecord = {
-      id: uuidv4(),
-      items: [...cart],
-      total: calculatedCart.total,
-      subtotal: calculatedCart.subtotal,
-      date: new Date().toLocaleString(),
-      timestamp: Date.now(),
-      paymentMethod,
-      status: 'Paid',
-      customerName: language === 'th' ? 'ลูกค้าทั่วไป' : (language === 'en' ? 'Walk-in' : 'ລູກຄ້າທົ່ວໄປ'),
-    };
-    await saveOrderData(newOrder);
-    setCurrentOrder(newOrder);
-    setCart([]);
-    setIsPaymentModalOpen(false);
-    setShowReceipt(true);
-  };
-
   const handleSaveProduct = (e: React.FormEvent) => {
     e.preventDefault();
     const formData = new FormData(e.target as HTMLFormElement);
@@ -722,7 +819,7 @@ const App: React.FC = () => {
       cost: Number(formData.get('cost')),
       category: formData.get('category') as string,
       stock: Number(formData.get('stock')),
-      color: editingProduct?.color || 'bg-sky-100 text-sky-600',
+      color: editingProduct?.color || COLORS[Math.floor(Math.random() * COLORS.length)],
     };
     saveProductData(newProduct);
     setIsProductModalOpen(false);
@@ -730,13 +827,14 @@ const App: React.FC = () => {
 
   return (
     <div className={`flex h-screen bg-slate-100 text-slate-900 font-sans ${language === 'th' ? 'font-thai' : ''}`}>
+      <input type="file" ref={csvInputRef} className="hidden" accept=".csv" onChange={handleImportCSV} />
       <Sidebar 
         currentMode={mode} 
         onModeChange={setMode} 
         isOpen={isSidebarOpen} 
         setIsOpen={setIsSidebarOpen} 
         onExport={()=>{}} 
-        onImport={()=>{}} 
+        onImport={() => csvInputRef.current?.click()} 
         language={language} 
         setLanguage={setLanguage} 
       />
@@ -792,6 +890,45 @@ const App: React.FC = () => {
               <div className="flex gap-3 pt-4">
                 <button type="button" onClick={()=>setIsProductModalOpen(false)} className="flex-1 py-4 border-2 border-slate-100 rounded-2xl font-bold text-slate-400 text-xs uppercase tracking-widest">Discard</button>
                 <button type="submit" className="flex-2 py-4 bg-sky-600 text-white rounded-2xl font-bold shadow-lg shadow-sky-100 px-10 text-xs uppercase tracking-widest">Save</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {isPromotionModalOpen && (
+        <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-4 backdrop-blur-sm">
+          <div className="bg-white rounded-[2.5rem] w-full max-w-md p-8 shadow-2xl">
+            <h3 className="text-xl font-bold mb-6 text-slate-800">{editingPromotion ? 'Edit Promotion' : 'New Promotion'}</h3>
+            <form onSubmit={handleSavePromotion} className="space-y-5">
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">{t.promo_name}</label>
+                <input name="name" required defaultValue={editingPromotion?.name} className="w-full p-3.5 bg-slate-50 border border-slate-100 rounded-2xl text-sm font-bold outline-none transition-all"/>
+              </div>
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">{t.promo_type}</label>
+                <select name="type" defaultValue={editingPromotion?.type || 'buy_x_get_y'} className="w-full p-3.5 bg-slate-50 border border-slate-100 rounded-2xl text-sm font-bold outline-none appearance-none cursor-pointer">
+                  <option value="buy_x_get_y">{t.promo_buy_get}</option>
+                  <option value="tiered_price">{t.promo_tiered}</option>
+                </select>
+              </div>
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Target SKUs (comma separated)</label>
+                <input name="skus" required defaultValue={editingPromotion?.targetSkus.join(', ')} className="w-full p-3.5 bg-slate-50 border border-slate-100 rounded-2xl text-sm font-bold outline-none"/>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Required Qty</label>
+                  <input name="requiredQty" type="number" defaultValue={editingPromotion?.requiredQty} className="w-full p-3.5 bg-slate-50 border border-slate-100 rounded-2xl text-sm font-bold outline-none"/>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Free/Discount Qty</label>
+                  <input name="freeQty" type="number" defaultValue={editingPromotion?.freeQty} className="w-full p-3.5 bg-slate-50 border border-slate-100 rounded-2xl text-sm font-bold outline-none"/>
+                </div>
+              </div>
+              <div className="flex gap-3 pt-4">
+                <button type="button" onClick={()=>setIsPromotionModalOpen(false)} className="flex-1 py-4 border-2 border-slate-100 rounded-2xl font-bold text-slate-400 text-xs uppercase tracking-widest">Discard</button>
+                <button type="submit" className="flex-2 py-4 bg-sky-600 text-white rounded-2xl font-bold shadow-lg px-10 text-xs uppercase tracking-widest">Save</button>
               </div>
             </form>
           </div>
