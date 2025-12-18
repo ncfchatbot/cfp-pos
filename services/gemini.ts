@@ -13,7 +13,8 @@ export const streamResponse = async (
   history: { role: string, parts: { text: string }[] }[]
 ): Promise<AsyncGenerator<GenerateContentResponse> | null> => {
   try {
-    const modelId = 'gemini-2.5-flash';
+    // Fix: Using gemini-3-flash-preview as per the official Google GenAI coding guidelines for basic text tasks.
+    const modelId = 'gemini-3-flash-preview';
     
     // Only AI mode uses the chat interface in this new app structure
     if (mode === AppMode.AI) {

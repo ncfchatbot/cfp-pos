@@ -3,13 +3,11 @@ import react from '@vitejs/plugin-react';
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
-  // Load env file based on `mode` in the current working directory.
-  // Set the third parameter to '' to load all env regardless of the `VITE_` prefix.
   const env = loadEnv(mode, (process as any).cwd(), '');
   
   return {
     plugins: [react()],
-    root: '.', // กำหนด Root directory เป็นโฟลเดอร์ปัจจุบัน
+    root: '.',
     build: {
       outDir: 'dist',
     },
@@ -17,9 +15,9 @@ export default defineConfig(({ mode }) => {
       port: 3000,
     },
     define: {
-      // Polyfill process.env.API_KEY so it works in the browser
-      // It tries to find API_KEY, VITE_API_KEY, or falls back to system process.env
       'process.env.API_KEY': JSON.stringify(env.API_KEY || env.VITE_API_KEY || process.env.API_KEY),
+      // แซงค่า FIREBASE_CONFIG เข้าไปในระบบเพื่อให้ทุก Device ใช้ชุดเดียวกัน
+      'process.env.FIREBASE_CONFIG': JSON.stringify(env.FIREBASE_CONFIG || env.VITE_FIREBASE_CONFIG || ''),
     },
   };
 });

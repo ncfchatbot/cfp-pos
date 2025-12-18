@@ -1,13 +1,12 @@
-import { initializeApp } from 'firebase/app';
-import { getFirestore, collection, addDoc, updateDoc, deleteDoc, doc, setDoc } from 'firebase/firestore';
+import { initializeApp, getApps, getApp } from 'firebase/app';
+import { getFirestore, collection, addDoc, updateDoc, deleteDoc, doc, setDoc, onSnapshot, query, orderBy } from 'firebase/firestore';
 
 let db: any = null;
 
-// Initialize Firebase with config provided by user
 export const initFirebase = (config: any) => {
+  if (!config) return false;
   try {
-    // Check if app already initialized (simplified for this context)
-    const app = initializeApp(config);
+    const app = getApps().length > 0 ? getApp() : initializeApp(config);
     db = getFirestore(app);
     console.log("Firebase Initialized Successfully");
     return true;
@@ -17,20 +16,24 @@ export const initFirebase = (config: any) => {
   }
 };
 
-// Try to load config from localStorage on startup
-const savedConfig = localStorage.getItem('pos_firebase_config');
-if (savedConfig) {
-  try {
-    initFirebase(JSON.parse(savedConfig));
-  } catch (e) {
-    console.error("Invalid saved firebase config");
-  }
+// 1. ตรวจสอบค่าจาก Environment Variable (Netlify/Vercel/Vite env)
+// 2. หากไม่มี ให้ตรวจสอบจาก LocalStorage (สำหรับ Manual Setup)
+const globalConfigStr = (process.env as any).FIREBASE_CONFIG;
+const savedConfigStr = localStorage.getItem('pos_firebase_config');
+
+if (globalConfigStr) {
+    try {
+        const config = typeof globalConfigStr === 'string' ? JSON.parse(globalConfigStr) : globalConfigStr;
+        initFirebase(config);
+    } catch (e) {
+        console.error("Global Firebase config parse error", e);
+    }
+} else if (savedConfigStr) {
+    try {
+        initFirebase(JSON.parse(savedConfigStr));
+    } catch (e) {
+        console.error("Invalid saved firebase config");
+    }
 }
 
-export { db, collection, addDoc, updateDoc, deleteDoc, doc, setDoc };
-
-// Helpers for data conversion
-export const convertDate = (date: any) => {
-    // Helper if we need to convert Firestore timestamps
-    return date; 
-};
+export { db, collection, addDoc, updateDoc, deleteDoc, doc, setDoc, onSnapshot, query, orderBy };
