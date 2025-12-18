@@ -1,12 +1,11 @@
-// sw.js - Progressive Web App Service Worker
-const CACHE_NAME = 'coffee-please-pos-v1.1';
+// sw.js - Optimized for SPA Reliability
+const CACHE_NAME = 'coffee-please-pos-v1.2';
 const ASSETS_TO_CACHE = [
   '/',
   '/index.html',
   '/manifest.json'
 ];
 
-// Install Event
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
@@ -16,7 +15,6 @@ self.addEventListener('install', (event) => {
   self.skipWaiting();
 });
 
-// Activate Event
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((cacheNames) => {
@@ -32,15 +30,19 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
-// Fetch Event - Network First Strategy
+// Network-First with strict Error Handling
 self.addEventListener('fetch', (event) => {
-  // Skip cross-origin requests
   if (!event.request.url.startsWith(self.location.origin)) return;
 
   event.respondWith(
     fetch(event.request)
       .then((response) => {
-        // If successful, clone and store in cache
+        // ONLY cache valid responses. 
+        // 404s and errors should NEVER be cached to prevent persistent broken state.
+        if (!response || response.status !== 200 || response.type !== 'basic') {
+          return response;
+        }
+
         const resClone = response.clone();
         caches.open(CACHE_NAME).then((cache) => {
           cache.put(event.request, resClone);
@@ -48,8 +50,14 @@ self.addEventListener('fetch', (event) => {
         return response;
       })
       .catch(() => {
-        // If network fails, try to get from cache
-        return caches.match(event.request);
+        // If offline or network error, fallback to cache
+        return caches.match(event.request).then(cachedResponse => {
+           if (cachedResponse) return cachedResponse;
+           // If it's a navigation request and we have no cache, return index.html
+           if (event.request.mode === 'navigate') {
+             return caches.match('/index.html');
+           }
+        });
       })
   );
 });
