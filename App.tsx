@@ -59,7 +59,6 @@ const App: React.FC = () => {
     return (localStorage.getItem('pos_language') as Language) || 'lo';
   });
 
-  // Cloud/Firebase State - ตรวจสอบทั้ง Global และ Local
   const [isCloudEnabled, setIsCloudEnabled] = useState<boolean>(() => {
       return !!(process.env as any).FIREBASE_CONFIG || !!localStorage.getItem('pos_firebase_config');
   });
@@ -82,14 +81,12 @@ const App: React.FC = () => {
     }
   };
 
-  // --- Data States ---
   const [products, setProducts] = useState<Product[]>([]);
   const [recentSales, setRecentSales] = useState<SaleRecord[]>([]);
   const [storeProfile, setStoreProfile] = useState<StoreProfile>(INITIAL_PROFILE);
   const [promotions, setPromotions] = useState<Promotion[]>([]);
   const [isDataLoaded, setIsDataLoaded] = useState(false);
 
-  // --- Real-time Cloud Sync ---
   useEffect(() => {
       if (isCloudEnabled && db) {
           console.log("Starting Real-time Cloud Sync...");
@@ -106,11 +103,9 @@ const App: React.FC = () => {
           const unsubProfile = onSnapshot(doc(db, 'settings', 'profile'), (docSnap) => {
               if (docSnap.exists()) setStoreProfile(docSnap.data() as StoreProfile);
           });
-
           setIsDataLoaded(true);
           return () => { unsubProducts(); unsubSales(); unsubPromotions(); unsubProfile(); }
       } else {
-          // Fallback to LocalStorage if cloud is not configured
           const savedProducts = localStorage.getItem('pos_products');
           const savedSales = localStorage.getItem('pos_sales');
           const savedProfile = localStorage.getItem('pos_profile');
@@ -123,7 +118,6 @@ const App: React.FC = () => {
       }
   }, [isCloudEnabled]);
 
-  // --- Persistent Storage (Local Backup) ---
   useEffect(() => {
       if (!isCloudEnabled && isDataLoaded) {
           localStorage.setItem('pos_products', JSON.stringify(products));
@@ -133,13 +127,11 @@ const App: React.FC = () => {
       }
   }, [products, recentSales, storeProfile, promotions, isCloudEnabled, isDataLoaded]);
 
-  // --- POS States ---
   const [cart, setCart] = useState<CartItem[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
   const [manualDiscount, setManualDiscount] = useState<{ type: 'amount' | 'percent', value: number }>({ type: 'amount', value: 0 });
 
-  // --- Modals ---
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [isProductModalOpen, setIsProductModalOpen] = useState(false);
   const [productImagePreview, setProductImagePreview] = useState<string | null>(null);
@@ -159,14 +151,12 @@ const App: React.FC = () => {
   const [isPromotionModalOpen, setIsPromotionModalOpen] = useState(false);
   const [promoType, setPromoType] = useState<PromotionType>('tiered_price');
 
-  // Refs
   const fileInputRef = useRef<HTMLInputElement>(null);
   const productCsvRef = useRef<HTMLInputElement>(null);
   const salesCsvRef = useRef<HTMLInputElement>(null);
   const logoInputRef = useRef<HTMLInputElement>(null);
   const productImageInputRef = useRef<HTMLInputElement>(null);
 
-  // AI
   const [messages, setMessages] = useState<Message[]>([]);
   const [chatInput, setChatInput] = useState('');
   const [isChatLoading, setIsChatLoading] = useState(false);
@@ -175,7 +165,6 @@ const App: React.FC = () => {
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
   useEffect(() => { if (editingPromotion) setPromoType(editingPromotion.type); else setPromoType('tiered_price'); }, [editingPromotion, isPromotionModalOpen]);
 
-  // --- CRUD Wrappers ---
   const saveProductData = async (product: Product) => {
       if (isCloudEnabled && db) await setDoc(doc(db, 'products', product.id), product);
       else setProducts(prev => { const exists = prev.find(p => p.id === product.id); return exists ? prev.map(p => p.id === product.id ? product : p) : [...prev, product]; });
@@ -187,7 +176,6 @@ const App: React.FC = () => {
   const saveOrderData = async (order: SaleRecord) => {
       if (isCloudEnabled && db) {
           await setDoc(doc(db, 'sales', order.id), order);
-          // ลดสต็อกแบบทันที
           for (const item of order.items) {
               const currentProd = products.find(p => p.id === item.id);
               if (currentProd) await updateDoc(doc(db, 'products', item.id), { stock: currentProd.stock - item.quantity });
@@ -229,7 +217,6 @@ const App: React.FC = () => {
     }
   };
 
-  // --- Logic ---
   const calculateCartWithPromotions = (inputCart: CartItem[]) => {
     let processedItems = inputCart.filter(item => !item.isFree).map(item => ({ ...item, price: item.originalPrice || item.price, originalPrice: undefined, promotionApplied: undefined }));
     const activePromos = promotions.filter(p => p.isActive);
@@ -283,8 +270,6 @@ const App: React.FC = () => {
     setIsOrderModalOpen(true);
   };
 
-  // Fix: Added handlePrintSpecificOrder to fix "Cannot find name 'handlePrintSpecificOrder'" error.
-  // This function sets the current order context and triggers the receipt view.
   const handlePrintSpecificOrder = (order: SaleRecord) => {
     setCurrentOrder(order);
     setShowReceipt(true);
@@ -310,6 +295,24 @@ const App: React.FC = () => {
           let fullText = ''; for await (const chunk of stream) { const text = chunk.text; if (text) { fullText += text; setMessages(prev => prev.map(m => m.id === botId ? {...m, text: fullText} : m)); } }
        }
     } catch (err) { setMessages(prev => [...prev, { id: uuidv4(), role: Role.MODEL, text: t.error, isError: true, timestamp: Date.now() }]); } finally { setIsChatLoading(false); }
+  };
+
+  const handleSaveProduct = (e: React.FormEvent) => {
+    e.preventDefault(); const formData = new FormData(e.target as HTMLFormElement);
+    const newProduct: Product = { 
+        id: editingProduct?.id || uuidv4(), code: formData.get('code') as string, name: formData.get('name') as string, price: Number(formData.get('price')), cost: Number(formData.get('cost')), category: formData.get('category') as string, stock: Number(formData.get('stock')), color: editingProduct?.color || `bg-${['orange','blue','green','purple','pink'][Math.floor(Math.random()*5)]}-100 text-slate-800`, imageUrl: productImagePreview || undefined 
+    };
+    saveProductData(newProduct);
+    setIsProductModalOpen(false); setEditingProduct(null); setProductImagePreview(null);
+  };
+
+  const handleSavePromotion = (e: React.FormEvent) => {
+      e.preventDefault(); const formData = new FormData(e.target as HTMLFormElement); const type = formData.get('type') as PromotionType;
+      const targetSkus = (formData.get('targetSkus') as string)?.split(/[\n,]+/).map(s => s.trim()).filter(Boolean) || [];
+      const tiers = []; for (let i = 0; i < 7; i++) { const qty = formData.get(`minQty${i}`); const price = formData.get(`price${i}`); if (qty && price) tiers.push({ minQty: Number(qty), price: Number(price) }); }
+      const newPromo: Promotion = { id: editingPromotion?.id || uuidv4(), name: formData.get('name') as string, type: type, isActive: true, targetSkus: targetSkus, ...(type === 'tiered_price' ? { tiers: tiers } : { requiredQty: Number(formData.get('requiredQty')), freeSku: formData.get('freeSku') as string, freeQty: Number(formData.get('freeQty')) }) };
+      savePromotionData(newPromo);
+      setIsPromotionModalOpen(false); setEditingPromotion(null);
   };
 
   // --- Render Sections ---
@@ -393,7 +396,58 @@ const App: React.FC = () => {
     );
   };
 
-  // --- Setting Render with Cloud Status ---
+  const renderStock = () => (
+    <div className="p-4 md:p-6 h-full overflow-y-auto bg-slate-50/50">
+        <div className="flex justify-between items-center mb-6">
+            <h2 className="text-xl font-bold text-slate-800">{t.stock_title}</h2>
+            <button onClick={() => { setEditingProduct(null); setProductImagePreview(null); setIsProductModalOpen(true); }} className="bg-sky-600 text-white px-3 py-2 rounded-lg shadow-sm hover:bg-sky-700 flex gap-2 text-sm font-bold"><Plus size={16}/> {t.stock_add}</button>
+        </div>
+        <div className="bg-white rounded-xl border border-slate-100 shadow-sm overflow-hidden overflow-x-auto">
+            <table className="w-full text-left text-sm whitespace-nowrap">
+                <thead className="bg-slate-50 border-b border-slate-100 text-slate-500">
+                    <tr><th className="px-4 py-3 font-bold text-xs uppercase tracking-wider">{t.stock_code}</th><th className="px-4 py-3 font-bold text-xs uppercase tracking-wider">{t.stock_name}</th><th className="px-4 py-3 font-bold text-xs uppercase tracking-wider text-right">{t.stock_cost}</th><th className="px-4 py-3 font-bold text-xs uppercase tracking-wider text-right">{t.stock_price}</th><th className="px-4 py-3 font-bold text-xs uppercase tracking-wider text-right">{t.stock_remaining}</th><th className="px-4 py-3 font-bold text-xs uppercase tracking-wider text-center">{t.stock_manage}</th></tr>
+                </thead>
+                <tbody className="divide-y divide-slate-50">
+                    {products.map(p => (
+                        <tr key={p.id} className="hover:bg-slate-50 transition-colors">
+                            <td className="px-4 py-3 text-slate-500 font-mono text-xs">{p.code}</td>
+                            <td className="px-4 py-3 font-medium text-slate-800 flex items-center gap-3">
+                                <div className={`w-8 h-8 rounded-lg ${p.color} flex items-center justify-center overflow-hidden flex-shrink-0 shadow-inner`}>{p.imageUrl ? <img src={p.imageUrl} className="w-full h-full object-cover"/> : p.name.charAt(0)}</div>{p.name}
+                            </td>
+                            <td className="px-4 py-3 text-right text-slate-400">{formatCurrency(p.cost || 0, language)}</td>
+                            <td className="px-4 py-3 text-right font-bold text-slate-800">{formatCurrency(p.price, language)}</td>
+                            <td className="px-4 py-3 text-right font-bold"><span className={checkIsLowStock(p) ? 'text-red-500' : 'text-slate-700'}>{p.stock}</span></td>
+                            <td className="px-4 py-3 text-center">
+                                <button onClick={() => { setEditingProduct(p); setProductImagePreview(p.imageUrl || null); setIsProductModalOpen(true); }} className="p-1.5 text-slate-400 hover:text-blue-600 rounded hover:bg-slate-100"><Edit size={14}/></button>
+                                <button onClick={() => { if(confirm(t.stock_delete_confirm)) deleteProductData(p.id) }} className="p-1.5 text-slate-400 hover:text-red-500 rounded hover:bg-slate-100"><Trash2 size={14}/></button>
+                            </td>
+                        </tr>
+                    ))}
+                    {products.length === 0 && <tr><td colSpan={6} className="text-center py-12 text-slate-400">{t.order_no_data}</td></tr>}
+                </tbody>
+            </table>
+        </div>
+    </div>
+  );
+
+  const renderAI = () => (
+    <div className="flex flex-col h-full bg-slate-50">
+      <div className="p-4 bg-white border-b border-slate-200 flex justify-between items-center shadow-sm z-10">
+         <div><h2 className="text-lg font-bold text-slate-800 flex items-center gap-2"><Sparkles className="text-sky-600" size={20}/> {t.ai_title}</h2><p className="text-xs text-slate-500">{t.ai_desc}</p></div>
+         <button onClick={() => setMessages([])} className="text-slate-400 hover:text-red-500 p-2"><Trash2 size={18}/></button>
+      </div>
+      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+         {messages.length === 0 && (<div className="h-full flex flex-col items-center justify-center text-slate-300 gap-4"><div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center shadow-sm"><Sparkles size={32} className="text-sky-300"/></div><p className="text-sm">{t.ai_input_placeholder}</p></div>)}
+         {messages.map(msg => <ChatMessage key={msg.id} message={msg} />)}
+         {isChatLoading && (<div className="flex items-center gap-2 text-slate-400 text-sm p-4 animate-pulse"><Loader2 size={16} className="animate-spin"/> {t.ai_thinking}</div>)}
+         <div ref={messagesEndRef} />
+      </div>
+      <div className="p-4 bg-white border-t border-slate-200">
+         <form onSubmit={handleSendMessage} className="relative flex items-center gap-2"><input value={chatInput} onChange={e => setChatInput(e.target.value)} placeholder={t.ai_input_placeholder} className="flex-1 p-3 pr-12 bg-slate-100 border-none rounded-xl outline-none focus:ring-2 focus:ring-sky-500 transition-all" disabled={isChatLoading}/><button type="submit" disabled={!chatInput.trim() || isChatLoading} className="absolute right-2 p-1.5 bg-sky-600 text-white rounded-lg hover:bg-sky-700 disabled:opacity-50 transition-colors"><Send size={18} /></button></form>
+      </div>
+    </div>
+  );
+
   const renderSettings = () => (
     <div className="p-4 md:p-6 h-full overflow-y-auto bg-slate-50/50">
       <h2 className="text-xl font-bold text-slate-800 mb-6 flex items-center gap-2"><Settings className="text-sky-600" /> {t.setting_title}</h2>
@@ -403,21 +457,16 @@ const App: React.FC = () => {
               <div className="bg-green-50 border border-green-200 rounded-xl p-4">
                   <div className="flex items-center gap-3 text-green-700 font-bold mb-2"><div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"/> ONLINE & SYNCED</div>
                   <p className="text-xs text-green-600 mb-4">เชื่อมต่อฐานข้อมูลส่วนกลางเรียบร้อยแล้ว ทุกอุปกรณ์จะเห็นข้อมูลเดียวกันทันที</p>
-                  {(process.env as any).FIREBASE_CONFIG ? (
-                    <p className="text-[10px] text-green-500 italic">* ใช้คอนฟิกส่วนกลางจากระบบ (Master Config)</p>
-                  ) : (
-                    <button onClick={() => { if(confirm("ตัดการเชื่อมต่อ?")) { localStorage.removeItem('pos_firebase_config'); window.location.reload(); } }} className="px-3 py-2 bg-white border border-red-200 text-red-600 rounded-lg text-xs font-bold hover:bg-red-50 flex items-center gap-2"><CloudOff size={14}/> ตัดการเชื่อมต่อ</button>
-                  )}
+                  <button onClick={() => { if(confirm("ตัดการเชื่อมต่อ?")) { localStorage.removeItem('pos_firebase_config'); window.location.reload(); } }} className="px-3 py-2 bg-white border border-red-200 text-red-600 rounded-lg text-xs font-bold hover:bg-red-50 flex items-center gap-2"><CloudOff size={14}/> ตัดการเชื่อมต่อ</button>
               </div>
           ) : (
               <div>
                   <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 mb-4"><p className="text-xs text-slate-500 flex items-start gap-2"><Info size={14} className="shrink-0 mt-0.5"/> หากต้องการเชื่อมต่อหลายเครื่องพร้อมกัน ให้วาง Firebase Config ของคุณที่นี่</p></div>
                   <textarea value={firebaseConfigInput} onChange={e => setFirebaseConfigInput(e.target.value)} placeholder='{"apiKey": "...", "projectId": "..."}' className="w-full p-3 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-sky-500 text-xs font-mono h-32 mb-3"/>
-                  <button onClick={() => { try { if(initFirebase(JSON.parse(firebaseConfigInput))) { localStorage.setItem('pos_firebase_config', firebaseConfigInput); window.location.reload(); } } catch(e){ alert("JSON ผิกรูปแบบ"); } }} className="px-4 py-2 bg-sky-600 text-white rounded-lg text-sm font-bold shadow hover:bg-sky-700">บันทึกและเชื่อมต่อ Cloud</button>
+                  <button onClick={() => { try { if(initFirebase(JSON.parse(firebaseConfigInput))) { localStorage.setItem('pos_firebase_config', firebaseConfigInput); window.location.reload(); } } catch(e){ alert("JSON ผิดรูปแบบ"); } }} className="px-4 py-2 bg-sky-600 text-white rounded-lg text-sm font-bold shadow hover:bg-sky-700">บันทึกและเชื่อมต่อ Cloud</button>
               </div>
           )}
       </div>
-      {/* Existing Shop Profile Settings... */}
     </div>
   );
 
@@ -433,11 +482,14 @@ const App: React.FC = () => {
         <div className="flex-1 overflow-hidden relative">
           {mode === AppMode.DASHBOARD && renderDashboard()}
           {mode === AppMode.POS && renderPOS()}
+          {mode === AppMode.STOCK && renderStock()}
+          {mode === AppMode.AI && renderAI()}
+          {mode === AppMode.SETTINGS && renderSettings()}
           {mode === AppMode.ORDERS && (
              <div className="p-4 md:p-6 h-full overflow-y-auto bg-slate-50/50">
                <div className="flex justify-between items-center mb-6">
                   <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2"><ClipboardList className="text-sky-600"/> {t.order_title}</h2>
-                  <button onClick={() => { setEditingOrder(null); setTempOrderCart([]); setIsOrderModalOpen(true); }} className="bg-sky-600 text-white px-3 py-2 rounded-lg text-sm flex gap-2"><Plus size={16}/> {t.order_create}</button>
+                  <button onClick={() => { setEditingOrder(null); setTempOrderCart([]); setIsOrderModalOpen(true); }} className="bg-sky-600 text-white px-3 py-2 rounded-lg text-sm flex gap-2 font-bold"><Plus size={16}/> {t.order_create}</button>
                </div>
                <div className="bg-white rounded-xl border border-slate-100 shadow-sm overflow-hidden overflow-x-auto">
                   <table className="w-full text-left text-sm whitespace-nowrap">
@@ -464,19 +516,98 @@ const App: React.FC = () => {
                </div>
              </div>
           )}
-          {/* Section for STOCK, AI, REPORTS, PROMOTIONS, etc. follow the same logic as dashboard... */}
-          {mode === AppMode.SETTINGS && renderSettings()}
         </div>
       </main>
-      
-      {/* Existing Modals (Product, Order, Receipt, etc.) follow with similar updates to use the wrappers... */}
+
+      {/* Product Edit Modal */}
+      {isProductModalOpen && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-xl animate-in zoom-in-95">
+            <h3 className="text-lg font-bold mb-4">{editingProduct ? t.stock_manage : t.stock_add}</h3>
+            <form onSubmit={handleSaveProduct} className="space-y-4">
+              <div className="flex flex-col items-center justify-center mb-4">
+                  <div className="w-24 h-24 rounded-xl bg-slate-100 border-2 border-dashed border-slate-300 flex items-center justify-center overflow-hidden relative group cursor-pointer" onClick={() => productImageInputRef.current?.click()}>
+                      {productImagePreview ? <img src={productImagePreview} className="w-full h-full object-cover" /> : <ImagePlus size={24} className="text-slate-400" />}
+                  </div>
+                  <input type="file" ref={productImageInputRef} onChange={(e) => { const file = e.target.files?.[0]; if(file){ const reader = new FileReader(); reader.onloadend = () => setProductImagePreview(reader.result as string); reader.readAsDataURL(file); } }} className="hidden" accept="image/*" />
+              </div>
+              <div className="grid grid-cols-3 gap-3">
+                 <div className="col-span-1"><label className="text-xs font-bold text-slate-500 mb-1 block">{t.stock_code}</label><input name="code" required defaultValue={editingProduct?.code} className="w-full p-2 border rounded-lg text-sm outline-none focus:border-sky-500"/></div>
+                 <div className="col-span-2"><label className="text-xs font-bold text-slate-500 mb-1 block">{t.stock_name}</label><input name="name" required defaultValue={editingProduct?.name} className="w-full p-2 border rounded-lg text-sm outline-none focus:border-sky-500"/></div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                 <div><label className="text-xs font-bold text-slate-500 mb-1 block">{t.stock_cost}</label><input name="cost" type="number" required defaultValue={editingProduct?.cost} className="w-full p-2 border rounded-lg text-sm outline-none focus:border-sky-500"/></div>
+                 <div><label className="text-xs font-bold text-slate-500 mb-1 block">{t.stock_price}</label><input name="price" type="number" required defaultValue={editingProduct?.price} className="w-full p-2 border rounded-lg text-sm outline-none focus:border-sky-500"/></div>
+              </div>
+              <div className="flex gap-3">
+                 <div className="flex-1"><label className="text-xs font-bold text-slate-500 mb-1 block">{t.stock_remaining}</label><input name="stock" type="number" required defaultValue={editingProduct?.stock} className="w-full p-2 border rounded-lg text-sm outline-none focus:border-sky-500"/></div>
+                 <div className="flex-1"><label className="text-xs font-bold text-slate-500 mb-1 block">Category</label><input name="category" required defaultValue={editingProduct?.category || 'General'} className="w-full p-2 border rounded-lg text-sm outline-none focus:border-sky-500"/></div>
+              </div>
+              <div className="flex gap-3 pt-2"><button type="button" onClick={()=>setIsProductModalOpen(false)} className="flex-1 py-2 border rounded-xl">{t.cancel}</button><button type="submit" className="flex-1 py-2 bg-sky-600 text-white rounded-xl font-bold">{t.save}</button></div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Payment Modal */}
+      {isPaymentModalOpen && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+          <div className="bg-white rounded-3xl w-full max-w-sm p-6 shadow-2xl animate-in zoom-in-95">
+             <div className="text-center mb-6"><p className="text-slate-500 text-sm mb-1">{t.pay_total}</p><h3 className="text-4xl font-bold text-slate-800">{formatCurrency(Math.max(0, calculatedCart.total - (manualDiscount.type === 'percent' ? (calculatedCart.total * manualDiscount.value) / 100 : manualDiscount.value)), language)}</h3></div>
+             <div className="grid grid-cols-2 gap-4 mb-8">
+               <button onClick={()=>setPaymentMethod('cash')} className={`p-4 border-2 rounded-2xl flex flex-col items-center gap-2 transition-all ${paymentMethod==='cash'?'border-sky-500 bg-sky-50 text-sky-700':'border-slate-100 text-slate-400'}`}><Banknote size={32}/><span className="font-bold">{t.pay_cash}</span></button>
+               <button onClick={()=>setPaymentMethod('qr')} className={`p-4 border-2 rounded-2xl flex flex-col items-center gap-2 transition-all ${paymentMethod==='qr'?'border-sky-500 bg-sky-50 text-sky-700':'border-slate-100 text-slate-400'}`}><CreditCard size={32}/><span className="font-bold">{t.pay_qr}</span></button>
+             </div>
+             <div className="space-y-3"><button onClick={processPayment} className="w-full bg-sky-600 text-white py-3.5 rounded-xl font-bold shadow-lg shadow-sky-200 active:scale-95 transition-all">{t.pay_confirm}</button><button onClick={()=>setIsPaymentModalOpen(false)} className="w-full bg-white border border-slate-200 text-slate-500 py-3.5 rounded-xl font-bold">{t.cancel}</button></div>
+          </div>
+        </div>
+      )}
+
+      {/* Receipt View Overlay */}
+      {showReceipt && currentOrder && (
+        <div className="fixed inset-0 bg-black/70 z-[100] flex items-center justify-center p-4 backdrop-blur-sm no-print">
+            <div className="bg-white rounded-xl w-full max-w-sm overflow-hidden flex flex-col max-h-[90vh]">
+                <div id="receipt-content" className="flex-1 overflow-y-auto p-8 text-black bg-white">
+                    <div className="text-center border-b border-dashed pb-4 mb-4">
+                        <h2 className="text-xl font-bold">{storeProfile.name}</h2>
+                        <p className="text-[10px]">{storeProfile.address}</p>
+                        <p className="text-[10px]">Tel: {storeProfile.phone}</p>
+                    </div>
+                    <div className="text-[10px] mb-4 space-y-1">
+                        <div className="flex justify-between"><span>Date:</span><span>{currentOrder.date}</span></div>
+                        <div className="flex justify-between"><span>Order ID:</span><span>#{currentOrder.id}</span></div>
+                        <div className="flex justify-between"><span>Customer:</span><span>{currentOrder.customerName}</span></div>
+                    </div>
+                    <div className="border-b border-dashed pb-2 mb-2 space-y-1">
+                        {currentOrder.items.map((item, i) => (
+                            <div key={i} className="flex justify-between text-xs">
+                                <span>{item.name} x{item.quantity}</span>
+                                <span>{formatCurrency(item.isFree ? 0 : item.price * item.quantity, language)}</span>
+                            </div>
+                        ))}
+                    </div>
+                    <div className="text-right space-y-1">
+                        {currentOrder.subtotal && currentOrder.subtotal !== currentOrder.total && <div className="text-[10px] text-slate-500">Subtotal: {formatCurrency(currentOrder.subtotal, language)}</div>}
+                        <div className="text-base font-bold">Total: {formatCurrency(currentOrder.total, language)}</div>
+                    </div>
+                    <div className="mt-8 text-center text-[10px] italic">Thank you for your visit!</div>
+                </div>
+                <div className="p-4 bg-slate-50 border-t flex gap-2">
+                    <button onClick={() => setShowReceipt(false)} className="flex-1 py-2 bg-white border border-slate-300 rounded font-bold text-sm">Close</button>
+                    <button onClick={() => window.print()} className="flex-1 py-2 bg-sky-600 text-white rounded font-bold text-sm flex items-center justify-center gap-2"><Printer size={16}/> Print</button>
+                </div>
+            </div>
+        </div>
+      )}
+
+      {/* Order Create Modal */}
       {isOrderModalOpen && (
         <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
           <div className="bg-white rounded-2xl w-full max-w-6xl shadow-2xl h-[90vh] flex flex-col md:flex-row overflow-hidden">
              <div className="w-full md:w-1/3 flex flex-col border-r bg-slate-50/30 p-4">
-                <div className="relative mb-4"><Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18}/><input value={skuSearch} onChange={e => setSkuSearch(e.target.value)} placeholder={t.pos_search_placeholder} className="w-full pl-9 pr-4 py-3 border rounded-xl outline-none focus:ring-2 focus:ring-sky-500 text-sm"/></div>
+                <div className="relative mb-4"><Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18}/><input value={skuSearch} onChange={e => setSkuSearch(e.target.value)} placeholder={t.pos_search_placeholder} className="w-full pl-9 pr-4 py-3 border rounded-xl outline-none focus:ring-2 focus:ring-sky-500 text-sm bg-white shadow-sm"/></div>
                 <div className="flex-1 overflow-y-auto space-y-2">
-                    {products.filter(p => p.name.toLowerCase().includes(skuSearch.toLowerCase()) || p.code.toLowerCase().includes(skuSearch.toLowerCase())).map(p => (<div key={p.id} onClick={() => addToCart(p, true)} className="flex justify-between items-center p-3 bg-white border rounded-xl hover:border-sky-300 cursor-pointer transition-all group"><div className="flex items-center gap-3"><div className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold ${p.color}`}>{p.imageUrl ? <img src={p.imageUrl} className="w-full h-full object-cover"/> : p.name.charAt(0)}</div><div><p className="font-bold text-xs truncate">{p.name}</p><p className="text-[10px] text-slate-400">{p.code} • {t.pos_stock}: {p.stock}</p></div></div><div className="font-bold text-sky-600 text-xs">{formatCurrency(p.price, language)}</div></div>))}
+                    {products.filter(p => p.name.toLowerCase().includes(skuSearch.toLowerCase()) || p.code.toLowerCase().includes(skuSearch.toLowerCase())).map(p => (<div key={p.id} onClick={() => addToCart(p, true)} className="flex justify-between items-center p-3 bg-white border rounded-xl hover:border-sky-300 cursor-pointer transition-all group"><div className="flex items-center gap-3"><div className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold ${p.color}`}>{p.imageUrl ? <img src={p.imageUrl} className="w-full h-full object-cover"/> : p.name.charAt(0)}</div><div><p className="font-bold text-xs truncate">{p.name}</p><p className="text-[10px] text-slate-400">{p.code} • Stock: {p.stock}</p></div></div><div className="font-bold text-sky-600 text-xs">{formatCurrency(p.price, language)}</div></div>))}
                 </div>
              </div>
              <div className="flex-1 flex flex-col bg-white">
