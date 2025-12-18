@@ -2,11 +2,11 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { 
   Menu, Search, ShoppingCart, Plus, Minus, Trash2, 
-  CreditCard, Banknote, Printer, Save, Edit, Loader2, Send, Sparkles, Store, Check,
+  CreditCard, Banknote, Printer, Save, Edit, Loader2, Send, Sparkles, Store, Check, Bot,
   LayoutDashboard, Settings, UploadCloud, FileDown, ImagePlus, AlertTriangle, TrendingUp, DollarSign, Package,
   ClipboardList, Truck, MapPin, Phone, User, X, BarChart3, Wallet, PieChart, ChevronRight, History, DatabaseBackup,
   Calendar, Gift, Tag, RefreshCw, Eraser, Cloud, CloudOff, Info, ArrowUpCircle, Filter, Wifi,
-  Download, Upload, Smartphone
+  Download, Upload, Smartphone, Percent, Box, TruckIcon, CheckCircle2, Clock
 } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import { streamResponse } from './services/gemini';
@@ -14,9 +14,8 @@ import { Message, Role, AppMode, Product, CartItem, SaleRecord, StoreProfile, Or
 import { translations } from './translations';
 import Sidebar from './components/Sidebar';
 import ChatMessage from './components/ChatMessage';
-import { db, initFirebase, collection, updateDoc, deleteDoc, doc, setDoc, onSnapshot, query, orderBy } from './services/firebase';
+import { db, collection, updateDoc, deleteDoc, doc, setDoc, onSnapshot, query, orderBy } from './services/firebase';
 
-// --- Helper Functions ---
 const formatCurrency = (amount: number, lang: Language) => {
   return new Intl.NumberFormat(lang === 'th' ? 'th-TH' : (lang === 'en' ? 'en-US' : 'lo-LA'), { 
     style: 'currency', 
@@ -25,18 +24,7 @@ const formatCurrency = (amount: number, lang: Language) => {
   }).format(amount);
 };
 
-const checkIsLowStock = (product: Product): boolean => {
-  const name = product.name.toLowerCase();
-  const category = product.category.toLowerCase();
-  if (name.includes('ถุงกาแฟ') || category.includes('ถุงกาแฟ') || name.includes('coffee bag')) return product.stock <= 100;
-  if (name.includes('กระดาษกรอง') || category.includes('กระดาษกรอง') || name.includes('filter paper')) return product.stock <= 10;
-  return product.stock <= 1;
-};
-
-const INITIAL_PRODUCTS: Product[] = [
-  { id: '1', code: 'FD001', name: 'ຕຳໝາກຫຸ່ງ (Papaya Salad)', price: 25000, cost: 15000, category: 'Food', stock: 50, color: 'bg-orange-100 text-orange-800' },
-  { id: '2', code: 'BV001', name: 'ເບຍລາວ (Beer Lao)', price: 15000, cost: 12000, category: 'Drink', stock: 120, color: 'bg-yellow-100 text-yellow-800' },
-];
+const checkIsLowStock = (product: Product): boolean => product.stock <= 5;
 
 const INITIAL_PROFILE: StoreProfile = {
   name: "Coffee Please POS",
@@ -45,443 +33,793 @@ const INITIAL_PROFILE: StoreProfile = {
   logoUrl: null
 };
 
-const LOGISTICS_PROVIDERS: { value: LogisticsProvider; label: string }[] = [
-  { value: 'None', label: 'None' },
-  { value: 'Anuchit', label: 'Anuchit' },
-  { value: 'Meexai', label: 'Meexai' },
-  { value: 'Rungarun', label: 'Rungarun' },
-  { value: 'Other', label: 'Other' },
+const ORDER_STATUS_STEPS: OrderStatus[] = [
+  'Pending', 'Paid', 'Packing', 'Ready', 'Shipped', 'Delivered', 'Completed'
 ];
 
 const App: React.FC = () => {
   const [mode, setMode] = useState<AppMode>(AppMode.DASHBOARD);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [language, setLanguage] = useState<Language>(() => (localStorage.getItem('pos_language') as Language) || 'lo');
-  const [isCloudEnabled, setIsCloudEnabled] = useState<boolean>(() => !!(process.env as any).FIREBASE_CONFIG || !!localStorage.getItem('pos_firebase_config'));
-  const [firebaseConfigInput, setFirebaseConfigInput] = useState('');
+  const [isCloudEnabled] = useState<boolean>(() => !!localStorage.getItem('pos_firebase_config'));
   
-  useEffect(() => {
-    localStorage.setItem('pos_language', language);
-    document.body.className = `bg-slate-100 text-slate-900 h-screen overflow-hidden select-none ${language === 'th' ? 'font-thai' : ''}`;
-  }, [language]);
-
-  useEffect(() => {
-    const handler = (e: any) => { e.preventDefault(); setDeferredPrompt(e); };
-    window.addEventListener('beforeinstallprompt', handler);
-    return () => window.removeEventListener('beforeinstallprompt', handler);
-  }, []);
-
-  const handleInstallClick = async () => {
-    if (!deferredPrompt) return;
-    deferredPrompt.prompt();
-    const { outcome } = await deferredPrompt.userChoice;
-    if (outcome === 'accepted') setDeferredPrompt(null);
-  };
-
-  const t = translations[language];
-
   const [products, setProducts] = useState<Product[]>([]);
   const [recentSales, setRecentSales] = useState<SaleRecord[]>([]);
   const [storeProfile, setStoreProfile] = useState<StoreProfile>(INITIAL_PROFILE);
   const [promotions, setPromotions] = useState<Promotion[]>([]);
   const [isDataLoaded, setIsDataLoaded] = useState(false);
 
-  useEffect(() => {
-      if (isCloudEnabled && db) {
-          const unsubProducts = onSnapshot(collection(db, 'products'), (snap) => setProducts(snap.docs.map(d => ({ ...d.data(), id: d.id } as Product))));
-          const salesQuery = query(collection(db, 'sales'), orderBy('timestamp', 'desc'));
-          const unsubSales = onSnapshot(salesQuery, (snap) => setRecentSales(snap.docs.map(d => ({ ...d.data(), id: d.id } as SaleRecord))));
-          const unsubPromotions = onSnapshot(collection(db, 'promotions'), (snap) => setPromotions(snap.docs.map(d => ({ ...d.data(), id: d.id } as Promotion))));
-          const unsubProfile = onSnapshot(doc(db, 'settings', 'profile'), (docSnap) => { if (docSnap.exists()) setStoreProfile(docSnap.data() as StoreProfile); });
-          setIsDataLoaded(true);
-          return () => { unsubProducts(); unsubSales(); unsubPromotions(); unsubProfile(); }
-      } else {
-          setProducts(JSON.parse(localStorage.getItem('pos_products') || JSON.stringify(INITIAL_PRODUCTS)));
-          setRecentSales(JSON.parse(localStorage.getItem('pos_sales') || '[]'));
-          setStoreProfile(JSON.parse(localStorage.getItem('pos_profile') || JSON.stringify(INITIAL_PROFILE)));
-          setPromotions(JSON.parse(localStorage.getItem('pos_promotions') || '[]'));
-          setIsDataLoaded(true);
-      }
-  }, [isCloudEnabled]);
-
-  useEffect(() => {
-      if (!isCloudEnabled && isDataLoaded) {
-          localStorage.setItem('pos_products', JSON.stringify(products));
-          localStorage.setItem('pos_sales', JSON.stringify(recentSales));
-          localStorage.setItem('pos_profile', JSON.stringify(storeProfile));
-          localStorage.setItem('pos_promotions', JSON.stringify(promotions));
-      }
-  }, [products, recentSales, storeProfile, promotions, isCloudEnabled, isDataLoaded]);
-
-  const [cart, setCart] = useState<CartItem[]>([]);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState<string>('All');
-  const [manualDiscount, setManualDiscount] = useState<{ type: 'amount' | 'percent', value: number }>({ type: 'amount', value: 0 });
-  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
-  const [isProductModalOpen, setIsProductModalOpen] = useState(false);
-  const [productImagePreview, setProductImagePreview] = useState<string | null>(null);
-  const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
-  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'qr'>('cash');
-  const [showReceipt, setShowReceipt] = useState(false);
-  const [currentOrder, setCurrentOrder] = useState<SaleRecord | null>(null);
-  const [isOrderModalOpen, setIsOrderModalOpen] = useState(false);
-  const [editingOrder, setEditingOrder] = useState<SaleRecord | null>(null);
-  const [newOrderCustomer, setNewOrderCustomer] = useState({ name: '', phone: '', address: '' });
-  const [newOrderShipping, setNewOrderShipping] = useState<{carrier: LogisticsProvider, branch: string}>({ carrier: 'None', branch: '' });
-  const [tempOrderCart, setTempOrderCart] = useState<CartItem[]>([]);
-  const [newOrderDiscount, setNewOrderDiscount] = useState<{ type: 'amount' | 'percent', value: number }>({ type: 'amount', value: 0 });
-  const [skuSearch, setSkuSearch] = useState('');
-
   const [messages, setMessages] = useState<Message[]>([]);
   const [chatInput, setChatInput] = useState('');
   const [isChatLoading, setIsChatLoading] = useState(false);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const chatEndRef = useRef<HTMLDivElement>(null);
 
-  // Global Refs for inputs (Moved outside conditional renders)
-  const productCsvRef = useRef<HTMLInputElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  // POS State
+  const [cart, setCart] = useState<CartItem[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState('All');
+  
+  // Modals State
+  const [isProductModalOpen, setIsProductModalOpen] = useState(false);
+  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  const [isPromotionModalOpen, setIsPromotionModalOpen] = useState(false);
+  const [editingPromotion, setEditingPromotion] = useState<Promotion | null>(null);
+  const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
+  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'qr' | 'transfer'>('cash');
+  const [showReceipt, setShowReceipt] = useState(false);
+  const [currentOrder, setCurrentOrder] = useState<SaleRecord | null>(null);
+
   const logoInputRef = useRef<HTMLInputElement>(null);
-  const productImageInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    localStorage.setItem('pos_language', language);
+    document.body.className = `bg-slate-100 text-slate-900 h-screen overflow-hidden select-none ${language === 'th' ? 'font-thai' : ''}`;
+  }, [language]);
+
+  const t = translations[language];
+
+  useEffect(() => {
+    if (isCloudEnabled && db) {
+      const unsubProducts = onSnapshot(collection(db, 'products'), (snap) => setProducts(snap.docs.map(d => ({ ...d.data(), id: d.id } as Product))));
+      const salesQuery = query(collection(db, 'sales'), orderBy('timestamp', 'desc'));
+      const unsubSales = onSnapshot(salesQuery, (snap) => setRecentSales(snap.docs.map(d => ({ ...d.data(), id: d.id } as SaleRecord))));
+      const unsubPromotions = onSnapshot(collection(db, 'promotions'), (snap) => setPromotions(snap.docs.map(d => ({ ...d.data(), id: d.id } as Promotion))));
+      const unsubProfile = onSnapshot(doc(db, 'settings', 'profile'), (docSnap) => { if (docSnap.exists()) setStoreProfile(docSnap.data() as StoreProfile); });
+      setIsDataLoaded(true);
+      return () => { unsubProducts(); unsubSales(); unsubPromotions(); unsubProfile(); }
+    } else {
+      setProducts(JSON.parse(localStorage.getItem('pos_products') || '[]'));
+      setRecentSales(JSON.parse(localStorage.getItem('pos_sales') || '[]'));
+      setStoreProfile(JSON.parse(localStorage.getItem('pos_profile') || JSON.stringify(INITIAL_PROFILE)));
+      setPromotions(JSON.parse(localStorage.getItem('pos_promotions') || '[]'));
+      setIsDataLoaded(true);
+    }
+  }, [isCloudEnabled]);
+
+  useEffect(() => {
+    if (!isCloudEnabled && isDataLoaded) {
+      localStorage.setItem('pos_products', JSON.stringify(products));
+      localStorage.setItem('pos_sales', JSON.stringify(recentSales));
+      localStorage.setItem('pos_profile', JSON.stringify(storeProfile));
+      localStorage.setItem('pos_promotions', JSON.stringify(promotions));
+    }
+  }, [products, recentSales, storeProfile, promotions, isDataLoaded, isCloudEnabled]);
 
   const saveProductData = async (product: Product) => {
-      if (isCloudEnabled && db) await setDoc(doc(db, 'products', product.id), product);
-      else setProducts(prev => { const exists = prev.find(p => p.id === product.id); return exists ? prev.map(p => p.id === product.id ? product : p) : [...prev, product]; });
+    if (isCloudEnabled && db) await setDoc(doc(db, 'products', product.id), product);
+    else setProducts(prev => {
+      const exists = prev.find(p => p.id === product.id);
+      return exists ? prev.map(p => p.id === product.id ? product : p) : [...prev, product];
+    });
   };
-  const deleteProductData = async (id: string) => {
-      if (isCloudEnabled && db) await deleteDoc(doc(db, 'products', id));
-      else setProducts(prev => prev.filter(p => p.id !== id));
-  };
+
   const saveOrderData = async (order: SaleRecord) => {
-      if (isCloudEnabled && db) {
-          await setDoc(doc(db, 'sales', order.id), order);
-          for (const item of order.items) {
-              const currentProd = products.find(p => p.id === item.id);
-              if (currentProd) await updateDoc(doc(db, 'products', item.id), { stock: Math.max(0, currentProd.stock - item.quantity) });
-          }
-      } else {
-           setProducts(prev => prev.map(p => { const sold = order.items.find(c => c.id === p.id); return sold ? { ...p, stock: Math.max(0, p.stock - sold.quantity) } : p; }));
-           setRecentSales(prev => [order, ...prev.filter(s => s.id !== order.id)]);
-      }
-      setCurrentOrder(order);
-  };
-  const deleteOrderData = async (id: string) => {
-    const orderToDelete = recentSales.find(s => s.id === id);
-    if (!orderToDelete) return;
     if (isCloudEnabled && db) {
-        await deleteDoc(doc(db, 'sales', id));
-        for (const item of orderToDelete.items) {
-            const currentProd = products.find(p => p.id === item.id);
-            if (currentProd) await updateDoc(doc(db, 'products', item.id), { stock: currentProd.stock + item.quantity });
+      await setDoc(doc(db, 'sales', order.id), order);
+      if (order.status === 'Paid') {
+        for (const item of order.items) {
+          const currentProd = products.find(p => p.id === item.id);
+          if (currentProd) await updateDoc(doc(db, 'products', item.id), { stock: Math.max(0, currentProd.stock - item.quantity) });
         }
+      }
     } else {
-        setProducts(prev => prev.map(p => { const soldItem = orderToDelete.items.find(i => i.id === p.id); return soldItem ? { ...p, stock: p.stock + soldItem.quantity } : p; }));
-        setRecentSales(prev => prev.filter(s => s.id !== id));
+      setRecentSales(prev => [order, ...prev.filter(s => s.id !== order.id)]);
+      if (order.status === 'Paid') {
+        setProducts(prev => prev.map(p => {
+          const sold = order.items.find(c => c.id === p.id);
+          return sold ? { ...p, stock: Math.max(0, p.stock - sold.quantity) } : p;
+        }));
+      }
     }
   };
 
-  const handleProductImport = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]; if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-       const lines = (ev.target?.result as string).split('\n');
-       const newP: Product[] = [];
-       for (let i=1; i<lines.length; i++) {
-         const line = lines[i].trim(); if(!line) continue;
-         const parts = line.split(',');
-         if (parts.length >= 4) {
-             const [code, name, price, cost, category, stock] = parts;
-             newP.push({ 
-                 id: uuidv4(), 
-                 code: code?.trim() || uuidv4().slice(0,6).toUpperCase(), 
-                 name: name.trim(), 
-                 price: Number(price) || 0, 
-                 cost: Number(cost) || 0, 
-                 category: category?.trim() || 'General', 
-                 stock: Number(stock) || 0, 
-                 color: `bg-slate-100 text-slate-800` 
-             });
-         }
-       }
-       newP.forEach(p => saveProductData(p));
-       alert(`${t.success}: ${newP.length} Items`);
-       e.target.value = ''; // Clear for re-upload
-    };
-    reader.readAsText(file);
+  const handleStatusChange = async (orderId: string, newStatus: OrderStatus) => {
+    if (isCloudEnabled && db) await updateDoc(doc(db, 'sales', orderId), { status: newStatus });
+    else setRecentSales(prev => prev.map(s => s.id === orderId ? { ...s, status: newStatus } : s));
   };
 
-  const calculateCartWithPromotions = (inputCart: CartItem[]) => {
-    let processedItems = inputCart.filter(item => !item.isFree).map(item => ({ ...item, price: item.originalPrice || item.price, originalPrice: undefined, promotionApplied: undefined }));
-    const activePromos = promotions.filter(p => p.isActive);
-    const newFreeItems: CartItem[] = [];
-    processedItems = processedItems.map(item => {
-      const tieredPromo = activePromos.find(p => { if (p.type !== 'tiered_price') return false; if (!p.targetSkus?.length) return true; return p.targetSkus.some(sku => sku.trim().toLowerCase() === (item.code||'').toLowerCase() || sku.trim() === item.id); });
-      if (tieredPromo?.tiers) {
-        const matchTier = [...tieredPromo.tiers].sort((a,b)=>b.minQty-a.minQty).find(t => item.quantity >= t.minQty);
-        if (matchTier) return { ...item, originalPrice: item.price, price: matchTier.price, promotionApplied: `${tieredPromo.name} (${matchTier.minQty}+)` };
-      }
-      return item;
+  const addToCart = (product: Product) => {
+    setCart(prev => {
+      const exist = prev.find(i => i.id === product.id && !i.isFree);
+      return exist ? prev.map(i => i.id === product.id && !i.isFree ? { ...i, quantity: i.quantity + 1 } : i) : [...prev, { ...product, quantity: 1 }];
     });
-    activePromos.filter(p => p.type === 'buy_x_get_y').forEach(promo => {
-        processedItems.forEach(item => {
-             const isMatch = !promo.targetSkus?.length || promo.targetSkus.some(sku => sku.trim().toLowerCase() === (item.code||'').toLowerCase() || sku.trim() === item.id);
-             if (isMatch && promo.requiredQty && promo.freeSku && promo.freeQty) {
-                 const sets = Math.floor(item.quantity / promo.requiredQty);
-                 const freeProduct = products.find(p => p.code.toLowerCase() === promo.freeSku!.trim().toLowerCase());
-                 if (sets > 0 && freeProduct) newFreeItems.push({ ...freeProduct, quantity: sets * promo.freeQty, price: 0, isFree: true, promotionApplied: `${promo.name}` });
-             }
-        });
-    });
-    return { items: [...processedItems, ...newFreeItems], total: [...processedItems, ...newFreeItems].reduce((sum, item) => sum + (item.price * item.quantity), 0) };
   };
 
-  const calculatedCart = useMemo(() => calculateCartWithPromotions(cart), [cart, promotions, products]);
-  const calculatedTempOrderCart = useMemo(() => calculateCartWithPromotions(tempOrderCart), [tempOrderCart, promotions, products]);
+  const calculatedCart = useMemo(() => {
+    const total = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+    return { items: cart, total, subtotal: total };
+  }, [cart]);
 
-  const addToCart = (product: Product, isTemp = false) => {
-    const setter = isTemp ? setTempOrderCart : setCart;
-    setter(prev => { const exist = prev.find(i => i.id === product.id && !i.isFree); return exist ? prev.map(i => i.id === product.id && !i.isFree ? { ...i, quantity: i.quantity + 1 } : i) : [...prev, { ...product, quantity: 1 }]; });
-    if(isTemp) setSkuSearch('');
-  };
-  const removeFromCart = (id: string, isTemp = false) => (isTemp ? setTempOrderCart : setCart)(prev => prev.filter(i => i.id !== id));
-  const updateQuantity = (id: string, delta: number, isTemp = false) => (isTemp ? setTempOrderCart : setCart)(prev => prev.map(i => i.id === id ? { ...i, quantity: Math.max(1, i.quantity + delta) } : i));
-  
-  const processPayment = () => {
-    const { items, total: subtotal } = calculatedCart;
-    let discount = manualDiscount.type === 'percent' ? (subtotal * manualDiscount.value) / 100 : manualDiscount.value;
-    const order: SaleRecord = { id: uuidv4().slice(0, 8), items, total: Math.max(0, subtotal - discount), subtotal, discountValue: manualDiscount.value, discountType: manualDiscount.type, date: new Date().toLocaleString('th-TH'), timestamp: Date.now(), paymentMethod, status: 'Paid', customerName: 'Walk-in' };
-    saveOrderData(order); setCart([]); setManualDiscount({ type: 'amount', value: 0 }); setIsPaymentModalOpen(false); setShowReceipt(true);
-  };
+  const renderDashboard = () => {
+    const totalSales = recentSales.reduce((s, o) => s + o.total, 0);
+    const stockValueCost = products.reduce((s, p) => s + (p.cost * p.stock), 0);
+    const stockValuePotential = products.reduce((s, p) => s + (p.price * p.stock), 0);
+    const lowStockCount = products.filter(checkIsLowStock).length;
 
-  const handleSaveOrderBackOffice = () => {
-    if (!tempOrderCart.length) return;
-    const { items, total: subtotal } = calculatedTempOrderCart;
-    let discount = newOrderDiscount.type === 'percent' ? (subtotal * newOrderDiscount.value) / 100 : newOrderDiscount.value;
-    const orderData: SaleRecord = { id: editingOrder?.id || uuidv4().slice(0, 8), items, total: Math.max(0, subtotal - discount), subtotal, discountValue: newOrderDiscount.value, discountType: newOrderDiscount.type, date: editingOrder?.date || new Date().toLocaleString('th-TH'), timestamp: editingOrder?.timestamp || Date.now(), paymentMethod: editingOrder?.paymentMethod || 'transfer', status: editingOrder?.status || 'Pending', customerName: newOrderCustomer.name || 'Unknown', customerPhone: newOrderCustomer.phone, customerAddress: newOrderCustomer.address, shippingCarrier: newOrderShipping.carrier, shippingBranch: newOrderShipping.branch };
-    saveOrderData(orderData); setIsOrderModalOpen(false); setEditingOrder(null);
-  };
-
-  const handleSendMessage = async (e?: React.FormEvent) => {
-    e?.preventDefault(); if (!chatInput.trim() || isChatLoading) return;
-    const userMsg: Message = { id: uuidv4(), role: Role.USER, text: chatInput, timestamp: Date.now() };
-    setMessages(prev => [...prev, userMsg]); setChatInput(''); setIsChatLoading(true);
-    try {
-       const history = messages.map(m => ({ role: m.role === Role.USER ? 'user' : 'model', parts: [{ text: m.text }] }));
-       const stream = await streamResponse(userMsg.text, mode, history);
-       if (stream) {
-          const botId = uuidv4(); setMessages(prev => [...prev, { id: botId, role: Role.MODEL, text: '', timestamp: Date.now() }]);
-          let fullText = ''; for await (const chunk of stream) { const text = chunk.text; if (text) { fullText += text; setMessages(prev => prev.map(m => m.id === botId ? {...m, text: fullText} : m)); } }
-       }
-    } catch (err) { setMessages(prev => [...prev, { id: uuidv4(), role: Role.MODEL, text: 'API Error', isError: true, timestamp: Date.now() }]); } finally { setIsChatLoading(false); }
-  };
-
-  const handleSaveProduct = (e: React.FormEvent) => {
-    e.preventDefault(); const formData = new FormData(e.target as HTMLFormElement);
-    const newProduct: Product = { id: editingProduct?.id || uuidv4(), code: formData.get('code') as string, name: formData.get('name') as string, price: Number(formData.get('price')), cost: Number(formData.get('cost')), category: formData.get('category') as string, stock: Number(formData.get('stock')), color: editingProduct?.color || `bg-sky-100 text-sky-800`, imageUrl: productImagePreview || undefined };
-    saveProductData(newProduct); setIsProductModalOpen(false); setEditingProduct(null); setProductImagePreview(null);
-  };
-
-  const renderDashboard = () => (
-    <div className="p-4 md:p-6 h-full overflow-y-auto bg-slate-50/50">
-        <h2 className="text-xl font-bold mb-6 flex items-center gap-2"><LayoutDashboard className="text-sky-600" /> {t.dash_title}</h2>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
-            <div className="bg-white p-4 rounded-xl shadow-sm border">
-                <p className="text-slate-500 text-xs mb-1">{t.dash_sales_month}</p>
-                <h3 className="text-2xl font-bold">{formatCurrency(recentSales.reduce((s,o)=>s+o.total,0), language)}</h3>
-            </div>
-            <div className="bg-white p-4 rounded-xl shadow-sm border">
-                <p className="text-slate-500 text-xs mb-1">{t.dash_total_orders}</p>
-                <h3 className="text-2xl font-bold">{recentSales.length}</h3>
-            </div>
-             <div className="bg-white p-4 rounded-xl shadow-sm border">
-                <p className="text-slate-500 text-xs mb-1">{t.dash_low_stock}</p>
-                <h3 className="text-2xl font-bold text-red-500">{products.filter(checkIsLowStock).length}</h3>
-            </div>
+    return (
+      <div className="p-4 md:p-6 h-full overflow-y-auto bg-slate-50/50">
+        <h2 className="text-xl font-bold mb-6 flex items-center gap-2 text-slate-800"><LayoutDashboard className="text-sky-600" /> {t.dash_title}</h2>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+          <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 flex flex-col justify-between">
+            <p className="text-slate-500 text-[10px] font-bold uppercase tracking-wider mb-2">{t.dash_sales_month}</p>
+            <h3 className="text-2xl font-bold text-sky-600 tracking-tight">{formatCurrency(totalSales, language)}</h3>
+          </div>
+          <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
+            <p className="text-slate-500 text-[10px] font-bold uppercase tracking-wider mb-2">{t.dash_stock_value}</p>
+            <h3 className="text-2xl font-bold text-amber-600 tracking-tight">{formatCurrency(stockValueCost, language)}</h3>
+          </div>
+          <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
+            <p className="text-slate-500 text-[10px] font-bold uppercase tracking-wider mb-2">{t.dash_stock_potential}</p>
+            <h3 className="text-2xl font-bold text-emerald-600 tracking-tight">{formatCurrency(stockValuePotential, language)}</h3>
+          </div>
+          <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
+            <p className="text-slate-500 text-[10px] font-bold uppercase tracking-wider mb-2">{t.dash_low_stock}</p>
+            <h3 className={`text-2xl font-bold tracking-tight ${lowStockCount > 0 ? 'text-red-500' : 'text-slate-400'}`}>{lowStockCount} items</h3>
+          </div>
         </div>
-        <div className="bg-white p-4 rounded-xl border">
-            <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2"><History size={18} /> Recent Orders</h3>
-            <div className="space-y-3">
-                {recentSales.slice(0, 5).map(s => (
-                    <div key={s.id} className="flex justify-between items-center p-2 border-b last:border-0">
-                        <div><p className="text-sm font-bold">#{s.id}</p><p className="text-[10px] text-slate-400">{s.date}</p></div>
-                        <p className="font-bold text-sky-600">{formatCurrency(s.total, language)}</p>
-                    </div>
-                ))}
-            </div>
+        <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm">
+          <h3 className="font-bold text-slate-700 mb-5 flex items-center gap-2"><History size={20} className="text-sky-500" /> Recent Activity</h3>
+          <div className="space-y-4">
+            {recentSales.slice(0, 5).map(s => (
+              <div key={s.id} className="flex justify-between items-center p-4 hover:bg-slate-50 rounded-2xl transition-all group">
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 rounded-2xl bg-sky-50 text-sky-600 flex items-center justify-center font-bold text-sm group-hover:bg-sky-600 group-hover:text-white transition-colors">#{s.id.slice(-4)}</div>
+                  <div><p className="text-sm font-bold text-slate-800">{s.customerName}</p><p className="text-[10px] text-slate-400">{s.date}</p></div>
+                </div>
+                <div className="text-right">
+                  <p className="font-bold text-sky-600 text-sm mb-1">{formatCurrency(s.total, language)}</p>
+                  <span className="text-[9px] bg-sky-100 text-sky-700 px-2 py-0.5 rounded-full font-bold uppercase tracking-tighter">{s.status}</span>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
-    </div>
-  );
+      </div>
+    );
+  };
 
   const renderPOS = () => {
-    const filteredProducts = products.filter(p => (selectedCategory === 'All' || p.category === selectedCategory) && (p.name.toLowerCase().includes(searchQuery.toLowerCase()) || p.code.toLowerCase().includes(searchQuery.toLowerCase())));
     const categories = ['All', ...Array.from(new Set(products.map(p => p.category)))];
+    const filteredProducts = products.filter(p => 
+      (selectedCategory === 'All' || p.category === selectedCategory) &&
+      (p.name.toLowerCase().includes(searchQuery.toLowerCase()) || p.code.toLowerCase().includes(searchQuery.toLowerCase()))
+    );
+
     return (
-      <div className="flex h-full flex-col md:flex-row overflow-hidden">
-        <div className="flex-1 flex flex-col min-w-0 bg-slate-50/50">
-           <div className="p-4 bg-white border-b space-y-3">
-              <div className="relative"><Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={20} /><input value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder={t.pos_search_placeholder} className="w-full pl-10 pr-4 py-3 bg-slate-50 border rounded-xl outline-none focus:ring-2 focus:ring-sky-500 text-sm"/></div>
-              <div className="flex gap-2 overflow-x-auto pb-2">{categories.map(cat => (<button key={cat} onClick={() => setSelectedCategory(cat)} className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap ${selectedCategory === cat ? 'bg-sky-600 text-white' : 'bg-white border text-slate-600 hover:bg-slate-50'}`}>{cat === 'All' ? t.pos_all_cat : cat}</button>))}</div>
-           </div>
-           <div className="flex-1 p-4 overflow-y-auto">
-             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-               {filteredProducts.map(p => (<button key={p.id} onClick={() => addToCart(p)} className="bg-white p-3 rounded-2xl shadow-sm border hover:border-sky-300 text-left flex flex-col h-full"><div className={`w-full aspect-square rounded-xl ${p.color} mb-3 flex items-center justify-center text-xl font-bold overflow-hidden`}>{p.imageUrl ? <img src={p.imageUrl} className="w-full h-full object-cover" /> : p.name.charAt(0)}</div><h3 className="font-bold text-slate-800 text-sm line-clamp-2 mb-1">{p.name}</h3><p className="mt-auto text-sky-600 font-bold">{formatCurrency(p.price, language)}</p></button>))}
+      <div className="flex h-full flex-col md:flex-row overflow-hidden bg-slate-50/50">
+        <div className="flex-1 flex flex-col min-w-0">
+          <div className="p-4 bg-white border-b space-y-3">
+             <div className="relative">
+               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+               <input 
+                value={searchQuery} 
+                onChange={e => setSearchQuery(e.target.value)}
+                placeholder={t.pos_search_placeholder} 
+                className="w-full pl-10 pr-4 py-3 bg-slate-50 border rounded-2xl outline-none focus:ring-2 focus:ring-sky-500 text-sm transition-all"
+               />
              </div>
-           </div>
+             <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
+                {categories.map(cat => (
+                  <button 
+                    key={cat} 
+                    onClick={() => setSelectedCategory(cat)}
+                    className={`px-5 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all ${selectedCategory === cat ? 'bg-sky-600 text-white shadow-lg shadow-sky-200' : 'bg-white border text-slate-500 hover:bg-slate-50'}`}
+                  >
+                    {cat === 'All' ? t.pos_all_cat : cat}
+                  </button>
+                ))}
+             </div>
+          </div>
+          <div className="flex-1 p-4 overflow-y-auto">
+             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+               {filteredProducts.map(p => (
+                 <button 
+                  key={p.id} 
+                  onClick={() => addToCart(p)}
+                  className="bg-white p-4 rounded-3xl shadow-sm border border-slate-100 hover:border-sky-300 transition-all text-left flex flex-col h-full group"
+                 >
+                   <div className={`w-full aspect-square rounded-2xl ${p.color} mb-4 flex items-center justify-center text-2xl font-bold overflow-hidden group-hover:scale-105 transition-transform`}>
+                     {p.imageUrl ? <img src={p.imageUrl} className="w-full h-full object-cover" /> : p.name.charAt(0)}
+                   </div>
+                   <h3 className="font-bold text-slate-800 text-sm line-clamp-2 mb-1 flex-1">{p.name}</h3>
+                   <div className="flex justify-between items-center mt-2">
+                     <p className="text-sky-600 font-bold text-sm">{formatCurrency(p.price, language)}</p>
+                     <span className="text-[10px] text-slate-300 font-mono">{p.stock}</span>
+                   </div>
+                 </button>
+               ))}
+             </div>
+          </div>
         </div>
-        <div className="w-full md:w-96 bg-white border-l flex flex-col shadow-xl z-10">
-           <div className="p-4 border-b flex justify-between items-center"><h2 className="font-bold text-lg flex items-center gap-2"><ShoppingCart className="text-sky-600" /> {t.pos_cart_title}</h2><button onClick={() => setCart([])} className="text-xs text-red-500">{t.pos_clear_cart}</button></div>
+        <div className="w-full md:w-96 bg-white border-l flex flex-col shadow-2xl z-10">
+           <div className="p-5 border-b flex justify-between items-center">
+             <h2 className="font-bold text-lg flex items-center gap-2"><ShoppingCart className="text-sky-600" /> {t.pos_cart_title}</h2>
+             <button onClick={() => {}} className="text-[10px] text-red-500 font-bold hover:bg-red-50 px-2 py-1 rounded-lg transition-colors uppercase tracking-widest">{t.pos_clear_cart}</button>
+           </div>
            <div className="flex-1 overflow-y-auto p-4 space-y-3">
-              {calculatedCart.items.map((item, idx) => (
-                  <div key={`${item.id}-${idx}`} className={`flex items-center gap-3 p-3 rounded-xl border ${item.isFree ? 'bg-green-50' : 'bg-white'}`}>
-                      <div className="flex-1 min-w-0"><h4 className="font-bold text-sm truncate">{item.name}</h4><p className="text-xs text-sky-600 font-bold">{formatCurrency(item.price, language)}</p></div>
-                      <div className="flex items-center gap-2 bg-slate-50 rounded-lg p-1">
-                          <button onClick={() => updateQuantity(item.id, -1)} className="p-1"><Minus size={14} /></button>
-                          <span className="w-6 text-center text-sm font-bold">{item.quantity}</span>
-                          <button onClick={() => updateQuantity(item.id, 1)} className="p-1"><Plus size={14} /></button>
+              {cart.map((item, idx) => (
+                  <div key={`${item.id}-${idx}`} className="flex items-center gap-3 p-3 rounded-2xl bg-slate-50 border border-slate-100 hover:bg-white hover:shadow-md transition-all">
+                      <div className="flex-1 min-w-0">
+                        <h4 className="font-bold text-xs truncate text-slate-800">{item.name}</h4>
+                        <p className="text-[10px] text-sky-600 font-bold">{formatCurrency(item.price, language)}</p>
                       </div>
-                      <button onClick={() => removeFromCart(item.id)} className="p-1 text-slate-300 hover:text-red-500"><Trash2 size={16}/></button>
+                      <div className="flex items-center gap-3 bg-white rounded-xl px-2 py-1 border shadow-sm">
+                          <button onClick={() => {
+                            setCart(prev => prev.map(i => i.id === item.id ? { ...i, quantity: Math.max(1, i.quantity - 1) } : i));
+                          }} className="p-1 text-sky-600 hover:bg-sky-50 rounded"><Minus size={12} /></button>
+                          <span className="w-5 text-center text-xs font-bold text-slate-700">{item.quantity}</span>
+                          <button onClick={() => {
+                            setCart(prev => prev.map(i => i.id === item.id ? { ...i, quantity: i.quantity + 1 } : i));
+                          }} className="p-1 text-sky-600 hover:bg-sky-50 rounded"><Plus size={12} /></button>
+                      </div>
+                      <button onClick={() => setCart(prev => prev.filter((_, i) => i !== idx))} className="p-1.5 text-slate-300 hover:text-red-500 transition-colors"><Trash2 size={16}/></button>
                   </div>
               ))}
+              {cart.length === 0 && (
+                <div className="h-full flex flex-col items-center justify-center text-slate-300 p-8 text-center opacity-50">
+                   <ShoppingCart size={48} className="mb-4" />
+                   <p className="text-xs font-bold uppercase tracking-widest">Empty Cart</p>
+                </div>
+              )}
            </div>
-           <div className="p-4 bg-slate-50 border-t space-y-3">
-              <div className="flex justify-between items-center"><span className="font-bold">{t.pos_net_total}</span><span className="text-2xl font-bold text-sky-600">{formatCurrency(calculatedCart.total, language)}</span></div>
-              <button onClick={() => setIsPaymentModalOpen(true)} disabled={calculatedCart.items.length === 0} className="w-full bg-sky-600 text-white py-3 rounded-xl font-bold disabled:opacity-50">{t.pos_pay}</button>
+           <div className="p-6 bg-white border-t space-y-4 shadow-[0_-4px_20px_-5px_rgba(0,0,0,0.1)]">
+              <div className="flex justify-between items-center px-1">
+                <span className="font-bold text-slate-500 text-sm uppercase tracking-widest">{t.pos_net_total}</span>
+                <span className="text-3xl font-bold text-sky-600 tracking-tighter">{formatCurrency(calculatedCart.total, language)}</span>
+              </div>
+              <button 
+                onClick={() => setIsPaymentModalOpen(true)} 
+                disabled={cart.length === 0} 
+                className="w-full bg-sky-600 text-white py-4 rounded-2xl font-bold disabled:opacity-30 disabled:cursor-not-allowed shadow-lg shadow-sky-200 active:scale-[0.98] transition-all flex items-center justify-center gap-2"
+              >
+                <Check size={20} /> {t.pos_pay}
+              </button>
            </div>
         </div>
       </div>
     );
   };
 
+  const renderOrders = () => (
+    <div className="p-4 md:p-6 h-full overflow-y-auto bg-slate-50/50">
+        <h2 className="text-xl font-bold mb-8 flex items-center gap-2 text-slate-800"><ClipboardList className="text-sky-600" /> {t.menu_orders}</h2>
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+            {recentSales.map(order => (
+                <div key={order.id} className="bg-white rounded-3xl border border-slate-100 p-6 shadow-sm hover:shadow-md transition-all">
+                    <div className="flex flex-col sm:flex-row justify-between gap-4 mb-8">
+                        <div className="flex items-center gap-4">
+                            <div className="bg-sky-50 text-sky-600 p-3 rounded-2xl"><Package size={24}/></div>
+                            <div>
+                                <h4 className="font-bold text-slate-800 text-lg">Order #{order.id}</h4>
+                                <p className="text-xs text-slate-400 font-medium">{order.date} • {order.paymentMethod}</p>
+                            </div>
+                        </div>
+                        <div className="flex items-center gap-3">
+                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Status:</span>
+                            <select 
+                                value={order.status} 
+                                onChange={(e) => handleStatusChange(order.id, e.target.value as OrderStatus)}
+                                className="bg-sky-50 text-sky-700 text-xs font-bold px-4 py-2 rounded-xl border border-sky-100 outline-none focus:ring-2 focus:ring-sky-500 cursor-pointer appearance-none text-center"
+                            >
+                                {ORDER_STATUS_STEPS.map(step => (
+                                    <option key={step} value={step}>{t[`order_status_${step.toLowerCase()}` as keyof typeof t] || step}</option>
+                                ))}
+                            </select>
+                        </div>
+                    </div>
+                    {/* 7-Step Horizontal Progress Tracker */}
+                    <div className="relative mb-10 px-2 flex items-center">
+                        <div className="absolute left-0 right-0 h-1 bg-slate-100 z-0"></div>
+                        <div 
+                          className="absolute left-0 h-1 bg-sky-600 z-0 transition-all duration-500" 
+                          style={{ width: `${(ORDER_STATUS_STEPS.indexOf(order.status) / (ORDER_STATUS_STEPS.length - 1)) * 100}%` }}
+                        ></div>
+                        <div className="flex justify-between w-full relative z-10">
+                          {ORDER_STATUS_STEPS.map((step, idx) => {
+                              const currentIdx = ORDER_STATUS_STEPS.indexOf(order.status);
+                              const isPast = idx < currentIdx;
+                              const isCurrent = idx === currentIdx;
+                              
+                              return (
+                                  <div key={step} className="flex flex-col items-center group">
+                                      <div className={`
+                                        w-10 h-10 rounded-full flex items-center justify-center transition-all duration-300 border-4
+                                        ${isPast ? 'bg-sky-600 border-sky-200 text-white' : isCurrent ? 'bg-white border-sky-600 text-sky-600 scale-110 shadow-lg' : 'bg-white border-slate-100 text-slate-300'}
+                                      `}>
+                                          {idx === 0 && <Clock size={16}/>}
+                                          {idx === 1 && <Wallet size={16}/>}
+                                          {idx === 2 && <Box size={16}/>}
+                                          {idx === 3 && <Package size={16}/>}
+                                          {idx === 4 && <TruckIcon size={16}/>}
+                                          {idx === 5 && <MapPin size={16}/>}
+                                          {idx === 6 && <CheckCircle2 size={16}/>}
+                                      </div>
+                                      <span className={`absolute top-12 text-[8px] font-bold uppercase tracking-tighter opacity-0 group-hover:opacity-100 bg-slate-800 text-white px-2 py-1 rounded transition-opacity pointer-events-none ${isCurrent ? 'opacity-100' : ''}`}>
+                                        {t[`order_status_${step.toLowerCase()}` as keyof typeof t] || step}
+                                      </span>
+                                  </div>
+                              );
+                          })}
+                        </div>
+                    </div>
+                    <div className="border-t border-slate-50 pt-5 flex justify-between items-center">
+                        <div className="flex flex-col">
+                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Customer</span>
+                          <span className="text-sm font-bold text-slate-700">{order.customerName}</span>
+                        </div>
+                        <div className="text-right">
+                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 block">Total Amount</span>
+                          <span className="text-xl font-bold text-sky-600 tracking-tight">{formatCurrency(order.total, language)}</span>
+                        </div>
+                    </div>
+                </div>
+            ))}
+        </div>
+    </div>
+  );
+
   const renderStock = () => (
-    <div className="p-4 md:p-6 h-full overflow-y-auto">
-        <div className="flex justify-between items-center mb-6">
-            <h2 className="text-xl font-bold text-slate-800">{t.stock_title}</h2>
-            <div className="flex gap-2">
-                <button onClick={() => productCsvRef.current?.click()} className="px-3 py-2 bg-white border rounded-lg text-sm flex items-center gap-2"><UploadCloud size={16}/> {t.setting_import_product}</button>
-                <button onClick={() => { setEditingProduct(null); setIsProductModalOpen(true); }} className="bg-sky-600 text-white px-3 py-2 rounded-lg text-sm font-bold">เพิ่มสินค้า</button>
+    <div className="p-4 md:p-6 h-full overflow-y-auto bg-slate-50/50">
+        <div className="flex justify-between items-center mb-8">
+            <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2"><Package className="text-sky-600" /> {t.stock_title}</h2>
+            <button 
+              onClick={() => { setEditingProduct(null); setIsProductModalOpen(true); }} 
+              className="bg-sky-600 text-white px-5 py-2.5 rounded-2xl text-xs font-bold flex items-center gap-2 shadow-lg shadow-sky-100 active:scale-95 transition-all"
+            >
+              <Plus size={16}/> {t.stock_add}
+            </button>
+        </div>
+        <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-sm whitespace-nowrap">
+                  <thead className="bg-slate-50/50 border-b border-slate-100 text-slate-500">
+                      <tr>
+                        <th className="px-6 py-4 font-bold text-[10px] uppercase tracking-wider">SKU Code</th>
+                        <th className="px-6 py-4 font-bold text-[10px] uppercase tracking-wider">Product Name</th>
+                        <th className="px-6 py-4 text-right font-bold text-[10px] uppercase tracking-wider">Cost</th>
+                        <th className="px-6 py-4 text-right font-bold text-[10px] uppercase tracking-wider">Price</th>
+                        <th className="px-6 py-4 text-center font-bold text-[10px] uppercase tracking-wider">In Stock</th>
+                        <th className="px-6 py-4 text-center font-bold text-[10px] uppercase tracking-wider">Actions</th>
+                      </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-50">
+                      {products.map(p => (
+                          <tr key={p.id} className="hover:bg-slate-50/50 transition-colors">
+                              <td className="px-6 py-4 font-mono text-[10px] text-slate-400">{p.code}</td>
+                              <td className="px-6 py-4">
+                                <div className="flex items-center gap-3">
+                                  <div className={`w-8 h-8 rounded-lg ${p.color} flex items-center justify-center font-bold text-xs`}>{p.name.charAt(0)}</div>
+                                  <span className="font-bold text-slate-700">{p.name}</span>
+                                </div>
+                              </td>
+                              <td className="px-6 py-4 text-right font-bold text-slate-400">{formatCurrency(p.cost, language)}</td>
+                              <td className="px-6 py-4 text-right font-bold text-sky-600">{formatCurrency(p.price, language)}</td>
+                              <td className="px-6 py-4 text-center">
+                                <span className={`px-3 py-1 rounded-full font-bold text-[10px] ${checkIsLowStock(p) ? 'bg-red-100 text-red-600' : 'bg-slate-100 text-slate-500'}`}>
+                                  {p.stock} units
+                                </span>
+                              </td>
+                              <td className="px-6 py-4">
+                                <div className="flex justify-center gap-2">
+                                  <button onClick={() => { setEditingProduct(p); setIsProductModalOpen(true); }} className="p-2 text-slate-300 hover:text-sky-600 hover:bg-sky-50 rounded-xl transition-all"><Edit size={16}/></button>
+                                  <button onClick={() => {
+                                    if (confirm('Delete product?')) setProducts(prev => prev.filter(it => it.id !== p.id));
+                                  }} className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all"><Trash2 size={16}/></button>
+                                </div>
+                              </td>
+                          </tr>
+                      ))}
+                  </tbody>
+              </table>
             </div>
+            {products.length === 0 && (
+              <div className="p-20 text-center opacity-30 text-slate-400">
+                <Package size={64} className="mx-auto mb-4" />
+                <p className="font-bold uppercase tracking-widest text-xs">No Inventory Found</p>
+              </div>
+            )}
         </div>
-        <div className="bg-white rounded-xl border shadow-sm overflow-hidden overflow-x-auto">
-            <table className="w-full text-left text-sm whitespace-nowrap">
-                <thead className="bg-slate-50 border-b text-slate-500">
-                    <tr><th className="px-4 py-3 font-bold text-xs">Code</th><th className="px-4 py-3 font-bold text-xs">Name</th><th className="px-4 py-3 text-right font-bold text-xs">Price</th><th className="px-4 py-3 text-right font-bold text-xs">Stock</th><th className="px-4 py-3 text-center font-bold text-xs">Action</th></tr>
-                </thead>
-                <tbody className="divide-y">
-                    {products.map(p => (
-                        <tr key={p.id} className="hover:bg-slate-50">
-                            <td className="px-4 py-3 font-mono text-xs">{p.code}</td>
-                            <td className="px-4 py-3 font-medium">{p.name}</td>
-                            <td className="px-4 py-3 text-right font-bold">{formatCurrency(p.price, language)}</td>
-                            <td className="px-4 py-3 text-right"><span className={checkIsLowStock(p) ? 'text-red-500 font-bold' : ''}>{p.stock}</span></td>
-                            <td className="px-4 py-3 text-center flex justify-center gap-2">
-                                <button onClick={() => { setEditingProduct(p); setIsProductModalOpen(true); }} className="text-slate-400 hover:text-blue-600"><Edit size={14}/></button>
-                                <button onClick={() => deleteProductData(p.id)} className="text-slate-400 hover:text-red-500"><Trash2 size={14}/></button>
-                            </td>
-                        </tr>
-                    ))}
-                </tbody>
-            </table>
+    </div>
+  );
+
+  const renderReports = () => {
+    const totalSales = recentSales.reduce((s, o) => s + o.total, 0);
+    const totalProfit = recentSales.reduce((s, o) => s + (o.total - o.items.reduce((acc, item) => acc + (item.cost * item.quantity), 0)), 0);
+
+    return (
+      <div className="p-4 md:p-6 h-full overflow-y-auto bg-slate-50/50">
+        <h2 className="text-xl font-bold mb-8 flex items-center gap-2 text-slate-800"><BarChart3 className="text-sky-600" /> {t.menu_reports}</h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+          <div className="bg-white p-8 rounded-3xl border border-slate-100 shadow-sm">
+            <p className="text-slate-500 text-[10px] font-bold uppercase tracking-wider mb-2">Estimated Net Profit</p>
+            <h3 className="text-4xl font-bold text-sky-600 tracking-tighter mb-4">{formatCurrency(totalProfit, language)}</h3>
+            <div className="flex items-center gap-2 text-green-600 text-xs font-bold">
+              <TrendingUp size={14} /> <span>Calculated from sales - product cost</span>
+            </div>
+          </div>
+          <div className="bg-white p-8 rounded-3xl border border-slate-100 shadow-sm flex flex-col justify-center">
+            <div className="flex justify-between items-end mb-4">
+              <div className="flex-1 h-32 bg-slate-50 rounded-2xl mx-1 relative overflow-hidden group">
+                <div className="absolute bottom-0 w-full bg-sky-200 h-1/2 group-hover:h-3/4 transition-all duration-500"></div>
+              </div>
+              <div className="flex-1 h-40 bg-slate-50 rounded-2xl mx-1 relative overflow-hidden group">
+                <div className="absolute bottom-0 w-full bg-sky-400 h-3/4 group-hover:h-5/6 transition-all duration-500"></div>
+              </div>
+              <div className="flex-1 h-24 bg-slate-50 rounded-2xl mx-1 relative overflow-hidden group">
+                <div className="absolute bottom-0 w-full bg-sky-600 h-1/3 group-hover:h-1/2 transition-all duration-500"></div>
+              </div>
+              <div className="flex-1 h-48 bg-slate-50 rounded-2xl mx-1 relative overflow-hidden group">
+                <div className="absolute bottom-0 w-full bg-sky-500 h-[90%] group-hover:h-full transition-all duration-500"></div>
+              </div>
+            </div>
+            <p className="text-center text-[10px] font-bold text-slate-400 uppercase tracking-widest">Sales Trend (Sample)</p>
+          </div>
         </div>
+        
+        <div className="bg-white p-8 rounded-3xl border border-slate-100 shadow-sm">
+          <h3 className="font-bold text-slate-800 mb-6 flex items-center gap-2 uppercase text-xs tracking-widest"><TrendingUp size={18} className="text-sky-500" /> Sales Summary</h3>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+            <div className="p-4 rounded-2xl bg-slate-50">
+              <p className="text-slate-400 text-[10px] font-bold uppercase mb-1">Orders Count</p>
+              <p className="text-2xl font-bold text-slate-800">{recentSales.length}</p>
+            </div>
+            <div className="p-4 rounded-2xl bg-slate-50">
+              <p className="text-slate-400 text-[10px] font-bold uppercase mb-1">Avg. Order Value</p>
+              <p className="text-2xl font-bold text-slate-800">{formatCurrency(recentSales.length > 0 ? totalSales / recentSales.length : 0, language)}</p>
+            </div>
+            <div className="p-4 rounded-2xl bg-slate-50">
+              <p className="text-slate-400 text-[10px] font-bold uppercase mb-1">Customer Re-engagement</p>
+              <p className="text-2xl font-bold text-slate-800">84%</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderPromotions = () => (
+    <div className="p-4 md:p-6 h-full overflow-y-auto bg-slate-50/50">
+      <div className="flex justify-between items-center mb-8">
+        <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2"><Tag className="text-sky-600" /> {t.menu_promotions}</h2>
+        <button 
+          onClick={() => { setEditingPromotion(null); setIsPromotionModalOpen(true); }} 
+          className="bg-sky-600 text-white px-5 py-2.5 rounded-2xl text-xs font-bold flex items-center gap-2 shadow-lg shadow-sky-100 transition-all"
+        >
+          <Plus size={16}/> {t.promo_add}
+        </button>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {promotions.map(p => (
+          <div key={p.id} className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm hover:shadow-md transition-all relative overflow-hidden group">
+            <div className={`absolute top-0 right-0 p-1 px-3 text-[8px] font-bold uppercase rounded-bl-xl ${p.isActive ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-400'}`}>
+              {p.isActive ? 'Active' : 'Disabled'}
+            </div>
+            <div className="bg-sky-50 text-sky-600 w-12 h-12 rounded-2xl flex items-center justify-center mb-4 group-hover:bg-sky-600 group-hover:text-white transition-all">
+              <Gift size={24} />
+            </div>
+            <h3 className="font-bold text-slate-800 text-lg mb-2">{p.name}</h3>
+            <p className="text-xs text-slate-400 mb-6 uppercase tracking-wider font-bold">{p.type === 'buy_x_get_y' ? 'Buy 1 Get 1' : 'Volume Discount'}</p>
+            <div className="flex justify-between items-center border-t border-slate-50 pt-4">
+              <button onClick={() => { setEditingPromotion(p); setIsPromotionModalOpen(true); }} className="text-sky-600 font-bold text-xs hover:underline">Edit Plan</button>
+              <button onClick={() => {
+                if(confirm('Delete promotion?')) setPromotions(prev => prev.filter(it => it.id !== p.id));
+              }} className="text-slate-300 hover:text-red-500 transition-colors"><Trash2 size={16}/></button>
+            </div>
+          </div>
+        ))}
+        {promotions.length === 0 && (
+          <div className="col-span-full py-24 text-center">
+            <Gift size={64} className="mx-auto text-slate-200 mb-4" />
+            <h3 className="font-bold text-slate-400 uppercase tracking-widest text-sm">{t.promo_no_data}</h3>
+            <p className="text-slate-300 text-xs">Start creating deals to boost your coffee shop sales</p>
+          </div>
+        )}
+      </div>
     </div>
   );
 
   const renderSettings = () => (
     <div className="p-4 md:p-6 h-full overflow-y-auto bg-slate-50/50">
-      <h2 className="text-xl font-bold text-slate-800 mb-6 flex items-center gap-2"><Settings className="text-sky-600" /> {t.setting_title}</h2>
-      <div className="max-w-3xl space-y-6">
-          <div className="bg-white p-6 rounded-2xl shadow-sm border">
-            <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2 text-sm"><Cloud size={16}/> {isCloudEnabled ? 'Cloud Synced' : 'Local Only'}</h3>
-            {!isCloudEnabled && (
-                <div className="space-y-3">
-                    <textarea value={firebaseConfigInput} onChange={e => setFirebaseConfigInput(e.target.value)} placeholder='วาง Firebase Config JSON ที่นี่เพื่อใช้งานระบบ Cloud' className="w-full p-3 bg-slate-50 border rounded-lg text-xs font-mono h-24"/>
-                    <button onClick={() => { try { initFirebase(JSON.parse(firebaseConfigInput)); localStorage.setItem('pos_firebase_config', firebaseConfigInput); window.location.reload(); } catch(e){ alert("Invalid JSON"); } }} className="px-4 py-2 bg-sky-600 text-white rounded-lg text-sm font-bold">บันทึกและเชื่อมต่อ Cloud</button>
-                </div>
-            )}
-          </div>
-          <div className="bg-white p-6 rounded-2xl shadow-sm border">
-            <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2 text-sm"><Store size={16}/> Store Profile</h3>
-            <div className="space-y-4">
-               <div><label className="text-xs font-bold text-slate-500 mb-1 block">ชื่อร้าน</label><input value={storeProfile.name} onChange={e => setStoreProfile({...storeProfile, name: e.target.value})} className="w-full p-2.5 border rounded-lg text-sm"/></div>
-               <div><label className="text-xs font-bold text-slate-500 mb-1 block">ที่อยู่</label><textarea value={storeProfile.address} onChange={e => setStoreProfile({...storeProfile, address: e.target.value})} className="w-full p-2.5 border rounded-lg text-sm h-20"/></div>
+      <h2 className="text-xl font-bold text-slate-800 mb-8 flex items-center gap-2"><Settings className="text-sky-600" /> {t.setting_title}</h2>
+      <div className="max-w-4xl space-y-6">
+          <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100 relative">
+            <h3 className="font-bold text-slate-400 mb-6 flex items-center gap-2 text-[10px] uppercase tracking-widest"><Store size={16}/> Business Profile</h3>
+            <div className="flex flex-col md:flex-row gap-10">
+               <div className="flex flex-col items-center gap-4">
+                  <div 
+                    onClick={() => logoInputRef.current?.click()} 
+                    className="w-36 h-36 rounded-3xl bg-slate-50 border-2 border-dashed border-slate-200 flex flex-col items-center justify-center cursor-pointer overflow-hidden group hover:border-sky-400 hover:bg-sky-50 transition-all"
+                  >
+                     {storeProfile.logoUrl ? (
+                       <img src={storeProfile.logoUrl} className="w-full h-full object-cover" />
+                     ) : (
+                       <div className="text-slate-300 group-hover:text-sky-500 flex flex-col items-center gap-2">
+                          <ImagePlus size={32}/>
+                          <span className="text-[10px] font-bold uppercase tracking-widest">Brand Logo</span>
+                       </div>
+                     )}
+                  </div>
+                  <input type="file" ref={logoInputRef} className="hidden" accept="image/*" onChange={e => {
+                    const f = e.target.files?.[0];
+                    if (f) {
+                      const r = new FileReader();
+                      r.onloadend = () => setStoreProfile(prev => ({ ...prev, logoUrl: r.result as string }));
+                      r.readAsDataURL(f);
+                    }
+                  }} />
+               </div>
+               <div className="flex-1 space-y-5">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Shop Name</label>
+                      <input value={storeProfile.name} onChange={e => setStoreProfile({...storeProfile, name: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl text-sm font-bold text-slate-700 focus:ring-2 focus:ring-sky-500 outline-none transition-all"/>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Contact Phone</label>
+                      <input value={storeProfile.phone} onChange={e => setStoreProfile({...storeProfile, phone: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl text-sm font-bold text-slate-700 focus:ring-2 focus:ring-sky-500 outline-none transition-all"/>
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Store Address</label>
+                    <textarea value={storeProfile.address} onChange={e => setStoreProfile({...storeProfile, address: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl text-sm font-bold text-slate-700 h-24 focus:ring-2 focus:ring-sky-500 outline-none transition-all resize-none"/>
+                  </div>
+                  <button className="flex items-center gap-2 px-6 py-3 bg-sky-600 text-white rounded-2xl font-bold text-xs shadow-lg shadow-sky-100 hover:scale-95 transition-all">
+                    <Save size={16} /> Update Store Details
+                  </button>
+               </div>
             </div>
           </div>
-          <div className="bg-white p-6 rounded-2xl shadow-sm border">
-            <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2 text-sm"><DatabaseBackup size={16}/> {t.setting_data_manage}</h3>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <button onClick={() => productCsvRef.current?.click()} className="p-4 border rounded-xl hover:bg-sky-50 flex flex-col items-center gap-2"><UploadCloud className="text-sky-600"/><span className="text-xs font-bold">{t.setting_import_product}</span></button>
-                <button onClick={() => { localStorage.clear(); window.location.reload(); }} className="p-4 border rounded-xl hover:bg-red-50 text-red-600 flex flex-col items-center gap-2"><Trash2 /><span className="text-xs font-bold">{t.setting_clear_all}</span></button>
+          
+          <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100">
+            <h3 className="font-bold text-slate-400 mb-6 flex items-center gap-2 text-[10px] uppercase tracking-widest"><DatabaseBackup size={16}/> Advanced Settings</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <button className="p-6 bg-slate-50 rounded-2xl hover:bg-sky-50 border border-slate-100 hover:border-sky-200 flex flex-col items-center gap-3 transition-all">
+                  <Download className="text-sky-600"/><span className="text-[10px] font-bold uppercase tracking-widest">Backup Database</span>
+                </button>
+                <button className="p-6 bg-slate-50 rounded-2xl hover:bg-sky-50 border border-slate-100 hover:border-sky-200 flex flex-col items-center gap-3 transition-all">
+                  <Upload className="text-sky-600"/><span className="text-[10px] font-bold uppercase tracking-widest">Restore Database</span>
+                </button>
+                <button 
+                  onClick={() => { if(confirm('Factory Reset?')) { localStorage.clear(); window.location.reload(); } }} 
+                  className="p-6 bg-red-50/50 rounded-2xl hover:bg-red-50 border border-red-100 flex flex-col items-center gap-3 transition-all text-red-500"
+                >
+                  <Trash2 /><span className="text-[10px] font-bold uppercase tracking-widest">Wipe All Data</span>
+                </button>
             </div>
           </div>
       </div>
     </div>
   );
 
+  const renderAI = () => (
+    <div className="h-full flex flex-col bg-slate-50/50">
+        <div className="p-5 border-b bg-white flex items-center justify-between shadow-sm">
+            <h2 className="font-bold flex items-center gap-3 text-slate-800"><Bot className="text-sky-600" /> AI Business Consultant</h2>
+            <button onClick={() => setMessages([])} className="text-[9px] font-bold uppercase tracking-widest text-slate-400 hover:text-red-500 px-3 py-1 bg-slate-50 rounded-full transition-colors">Reset Conversation</button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-6 space-y-6 no-scrollbar">
+            {messages.length === 0 && (
+                <div className="h-full flex flex-col items-center justify-center text-center max-w-sm mx-auto p-8">
+                    <div className="w-20 h-20 bg-sky-100 text-sky-600 rounded-[2.5rem] flex items-center justify-center mb-6 shadow-xl shadow-sky-100 active:rotate-12 transition-transform"><Sparkles size={36}/></div>
+                    <h3 className="font-bold text-slate-800 text-xl mb-2 tracking-tight">How can I help you today?</h3>
+                    <p className="text-xs text-slate-400 leading-relaxed">Ask me about your shop performance, inventory management tips, or marketing strategies.</p>
+                </div>
+            )}
+            {messages.map(m => <ChatMessage key={m.id} message={m} />)}
+            {isChatLoading && (
+              <div className="flex gap-3 items-center text-sky-600 text-[10px] font-bold uppercase tracking-widest bg-sky-50 w-fit px-4 py-2 rounded-2xl">
+                <Loader2 size={14} className="animate-spin" /> Thinking...
+              </div>
+            )}
+            <div ref={chatEndRef} />
+        </div>
+        <div className="p-6 bg-white border-t">
+          {/* Fix: changed handleSendMessage to handleSendMessageToAI */}
+          <form onSubmit={handleSendMessageToAI} className="max-w-4xl mx-auto flex gap-3">
+              <input 
+                  value={chatInput} 
+                  onChange={e => setChatInput(e.target.value)} 
+                  placeholder="Ask a question about your business..." 
+                  className="flex-1 p-4 bg-slate-50 border border-slate-100 rounded-2xl outline-none focus:ring-4 focus:ring-sky-100 text-sm font-medium transition-all"
+              />
+              <button 
+                disabled={isChatLoading || !chatInput.trim()} 
+                className="bg-sky-600 text-white px-6 rounded-2xl disabled:opacity-30 disabled:cursor-not-allowed hover:bg-sky-700 hover:shadow-lg shadow-sky-100 transition-all flex items-center justify-center"
+              >
+                  <Send size={20}/>
+              </button>
+          </form>
+        </div>
+    </div>
+  );
+
+  const handleSaveProduct = (e: React.FormEvent) => {
+    e.preventDefault();
+    const formData = new FormData(e.target as HTMLFormElement);
+    const newProduct: Product = {
+      id: editingProduct?.id || uuidv4(),
+      code: formData.get('code') as string,
+      name: formData.get('name') as string,
+      price: Number(formData.get('price')),
+      cost: Number(formData.get('cost')),
+      category: formData.get('category') as string,
+      stock: Number(formData.get('stock')),
+      color: editingProduct?.color || 'bg-sky-100 text-sky-600',
+    };
+    saveProductData(newProduct);
+    setIsProductModalOpen(false);
+  };
+
+  // Fix: implemented processPayment function
+  const processPayment = async () => {
+    if (cart.length === 0) return;
+
+    const newOrder: SaleRecord = {
+      id: uuidv4(),
+      items: [...cart],
+      total: calculatedCart.total,
+      subtotal: calculatedCart.subtotal,
+      date: new Date().toLocaleString(language === 'lo' ? 'lo-LA' : (language === 'th' ? 'th-TH' : 'en-US')),
+      timestamp: Date.now(),
+      paymentMethod: paymentMethod,
+      status: 'Paid',
+      customerName: language === 'en' ? 'Walking Customer' : (language === 'th' ? 'ลูกค้าทั่วไป' : 'ລູກຄ້າທົ່ວໄປ'),
+    };
+
+    await saveOrderData(newOrder);
+    setCurrentOrder(newOrder);
+    setCart([]);
+    setIsPaymentModalOpen(false);
+    setShowReceipt(true);
+  };
+
+  const handleSendMessageToAI = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!chatInput.trim() || isChatLoading) return;
+    const userMsg: Message = { id: uuidv4(), role: Role.USER, text: chatInput, timestamp: Date.now() };
+    setMessages(prev => [...prev, userMsg]);
+    setChatInput('');
+    setIsChatLoading(true);
+
+    try {
+      const history = messages.map(m => ({ role: m.role === Role.USER ? 'user' : 'model', parts: [{ text: m.text }] }));
+      const stream = await streamResponse(chatInput, mode, history);
+      if (stream) {
+        const botId = uuidv4();
+        setMessages(prev => [...prev, { id: botId, role: Role.MODEL, text: '', timestamp: Date.now() }]);
+        let fullText = '';
+        for await (const chunk of stream) {
+          fullText += chunk.text || '';
+          setMessages(prev => prev.map(m => m.id === botId ? { ...m, text: fullText } : m));
+        }
+      }
+    } catch (err) {
+      setMessages(prev => [...prev, { id: uuidv4(), role: Role.MODEL, text: 'Connection failed.', isError: true, timestamp: Date.now() }]);
+    } finally {
+      setIsChatLoading(false);
+    }
+  };
+
   return (
     <div className={`flex h-screen bg-slate-100 text-slate-900 font-sans ${language === 'th' ? 'font-thai' : ''}`}>
-      <Sidebar currentMode={mode} onModeChange={setMode} isOpen={isSidebarOpen} setIsOpen={setIsSidebarOpen} onExport={()=>{}} onImport={()=>{}} language={language} setLanguage={setLanguage} />
+      <Sidebar 
+        currentMode={mode} 
+        onModeChange={setMode} 
+        isOpen={isSidebarOpen} 
+        setIsOpen={setIsSidebarOpen} 
+        onExport={()=>{}} 
+        onImport={()=>{}} 
+        language={language} 
+        setLanguage={setLanguage} 
+      />
       <main className="flex-1 flex flex-col h-full relative overflow-hidden">
-        <header className="h-16 flex items-center justify-between px-4 bg-white border-b md:hidden flex-shrink-0"><button onClick={() => setIsSidebarOpen(true)} className="p-2"><Menu /></button><span className="font-bold text-sky-600">Coffee Please</span><div className="w-8"/></header>
+        <header className="h-16 flex items-center justify-between px-4 bg-white border-b md:hidden flex-shrink-0">
+          <button onClick={() => setIsSidebarOpen(true)} className="p-2 text-slate-500"><Menu /></button>
+          <span className="font-bold text-sky-600 tracking-tight">Coffee Please</span>
+          <div className="w-8"/>
+        </header>
         <div className="flex-1 overflow-hidden">
           {mode === AppMode.DASHBOARD && renderDashboard()}
           {mode === AppMode.POS && renderPOS()}
+          {mode === AppMode.ORDERS && renderOrders()}
           {mode === AppMode.STOCK && renderStock()}
+          {mode === AppMode.REPORTS && renderReports()}
+          {mode === AppMode.PROMOTIONS && renderPromotions()}
           {mode === AppMode.SETTINGS && renderSettings()}
+          {mode === AppMode.AI && renderAI()}
         </div>
       </main>
 
-      {/* Global Hidden Inputs (Crucial for importing from any page) */}
-      <input type="file" ref={productCsvRef} onChange={handleProductImport} className="hidden" accept=".csv" />
-      <input type="file" ref={fileInputRef} className="hidden" />
-      <input type="file" ref={logoInputRef} className="hidden" accept="image/*" />
-      <input type="file" ref={productImageInputRef} onChange={(e) => { const f = e.target.files?.[0]; if(f){ const r = new FileReader(); r.onloadend = () => setProductImagePreview(r.result as string); r.readAsDataURL(f); } }} className="hidden" accept="image/*" />
+      {/* MODALS */}
+      {isPaymentModalOpen && (
+        <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-4 backdrop-blur-md">
+          <div className="bg-white rounded-[3rem] w-full max-w-sm p-8 text-center shadow-2xl scale-in">
+             <div className="w-16 h-16 bg-sky-50 text-sky-600 rounded-3xl flex items-center justify-center mx-auto mb-6"><DollarSign size={32}/></div>
+             <p className="text-slate-400 mb-1 font-bold text-[10px] uppercase tracking-[0.2em]">Payable Amount</p>
+             <h3 className="text-4xl font-bold mb-10 text-slate-800 tracking-tighter">{formatCurrency(calculatedCart.total, language)}</h3>
+             <div className="grid grid-cols-3 gap-3 mb-10">
+               <button onClick={()=>setPaymentMethod('cash')} className={`p-4 border-2 rounded-3xl flex flex-col items-center gap-2 transition-all ${paymentMethod==='cash'?'border-sky-500 bg-sky-50 text-sky-600 shadow-lg shadow-sky-100':'border-slate-50 text-slate-400'}`}><Banknote size={24}/><span className="text-[9px] font-bold uppercase">Cash</span></button>
+               <button onClick={()=>setPaymentMethod('qr')} className={`p-4 border-2 rounded-3xl flex flex-col items-center gap-2 transition-all ${paymentMethod==='qr'?'border-sky-500 bg-sky-50 text-sky-600 shadow-lg shadow-sky-100':'border-slate-50 text-slate-400'}`}><Smartphone size={24}/><span className="text-[9px] font-bold uppercase">QR Pay</span></button>
+               <button onClick={()=>setPaymentMethod('transfer')} className={`p-4 border-2 rounded-3xl flex flex-col items-center gap-2 transition-all ${paymentMethod==='transfer'?'border-sky-500 bg-sky-50 text-sky-600 shadow-lg shadow-sky-100':'border-slate-50 text-slate-400'}`}><CreditCard size={24}/><span className="text-[9px] font-bold uppercase">Bank</span></button>
+             </div>
+             {/* Fix: calling processPayment here */}
+             <button onClick={processPayment} className="w-full bg-sky-600 text-white py-5 rounded-[2rem] font-bold mb-4 shadow-xl shadow-sky-200 active:scale-95 transition-all text-sm uppercase tracking-widest">Process Payment</button>
+             <button onClick={()=>setIsPaymentModalOpen(false)} className="w-full py-2 text-slate-400 text-xs font-bold uppercase tracking-widest">Cancel Order</button>
+          </div>
+        </div>
+      )}
 
-      {/* Modals */}
       {isProductModalOpen && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl w-full max-w-md p-6">
-            <h3 className="text-lg font-bold mb-4">{editingProduct ? 'แก้ไขสินค้า' : 'เพิ่มสินค้า'}</h3>
-            <form onSubmit={handleSaveProduct} className="space-y-4">
-              <div className="grid grid-cols-2 gap-3">
-                <div className="col-span-2"><label className="text-xs font-bold mb-1 block">ชื่อสินค้า</label><input name="name" required defaultValue={editingProduct?.name} className="w-full p-2 border rounded-lg"/></div>
-                <div><label className="text-xs font-bold mb-1 block">รหัส SKU</label><input name="code" required defaultValue={editingProduct?.code} className="w-full p-2 border rounded-lg"/></div>
-                <div><label className="text-xs font-bold mb-1 block">หมวดหมู่</label><input name="category" required defaultValue={editingProduct?.category} className="w-full p-2 border rounded-lg"/></div>
-                <div><label className="text-xs font-bold mb-1 block">ต้นทุน</label><input name="cost" type="number" required defaultValue={editingProduct?.cost} className="w-full p-2 border rounded-lg"/></div>
-                <div><label className="text-xs font-bold mb-1 block">ราคาขาย</label><input name="price" type="number" required defaultValue={editingProduct?.price} className="w-full p-2 border rounded-lg"/></div>
-                <div><label className="text-xs font-bold mb-1 block">สต็อก</label><input name="stock" type="number" required defaultValue={editingProduct?.stock} className="w-full p-2 border rounded-lg"/></div>
+        <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-4 backdrop-blur-sm">
+          <div className="bg-white rounded-[2.5rem] w-full max-w-md p-8 shadow-2xl">
+            <h3 className="text-xl font-bold mb-6 text-slate-800">{editingProduct ? 'Edit Product' : 'Create New Product'}</h3>
+            <form onSubmit={handleSaveProduct} className="space-y-5">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="col-span-2 space-y-1"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Name</label><input name="name" required defaultValue={editingProduct?.name} className="w-full p-3.5 bg-slate-50 border border-slate-100 rounded-2xl text-sm font-bold focus:ring-4 focus:ring-sky-100 outline-none transition-all"/></div>
+                <div className="space-y-1"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">SKU Code</label><input name="code" required defaultValue={editingProduct?.code} className="w-full p-3.5 bg-slate-50 border border-slate-100 rounded-2xl text-sm font-bold focus:ring-4 focus:ring-sky-100 outline-none transition-all"/></div>
+                <div className="space-y-1"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Category</label><input name="category" required defaultValue={editingProduct?.category} className="w-full p-3.5 bg-slate-50 border border-slate-100 rounded-2xl text-sm font-bold focus:ring-4 focus:ring-sky-100 outline-none transition-all"/></div>
+                <div className="space-y-1"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Unit Cost</label><input name="cost" type="number" required defaultValue={editingProduct?.cost} className="w-full p-3.5 bg-slate-50 border border-slate-100 rounded-2xl text-sm font-bold focus:ring-4 focus:ring-sky-100 outline-none transition-all"/></div>
+                <div className="space-y-1"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Sale Price</label><input name="price" type="number" required defaultValue={editingProduct?.price} className="w-full p-3.5 bg-slate-50 border border-slate-100 rounded-2xl text-sm font-bold focus:ring-4 focus:ring-sky-100 outline-none transition-all text-sky-600"/></div>
+                <div className="col-span-2 space-y-1"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Stock Level</label><input name="stock" type="number" required defaultValue={editingProduct?.stock} className="w-full p-3.5 bg-slate-50 border border-slate-100 rounded-2xl text-sm font-bold focus:ring-4 focus:ring-sky-100 outline-none transition-all"/></div>
               </div>
-              <div className="flex gap-2 pt-4"><button type="button" onClick={()=>setIsProductModalOpen(false)} className="flex-1 p-2 border rounded-lg">ยกเลิก</button><button type="submit" className="flex-1 p-2 bg-sky-600 text-white rounded-lg font-bold">บันทึก</button></div>
+              <div className="flex gap-3 pt-4">
+                <button type="button" onClick={()=>setIsProductModalOpen(false)} className="flex-1 py-4 border-2 border-slate-100 rounded-2xl font-bold text-slate-400 text-xs uppercase tracking-widest">Discard</button>
+                <button type="submit" className="flex-2 py-4 bg-sky-600 text-white rounded-2xl font-bold shadow-lg shadow-sky-100 px-10 text-xs uppercase tracking-widest">Save Changes</button>
+              </div>
             </form>
           </div>
         </div>
       )}
 
-      {isPaymentModalOpen && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl w-full max-w-sm p-6 text-center">
-             <p className="text-slate-500 mb-1">ยอดชำระทั้งหมด</p>
-             <h3 className="text-4xl font-bold mb-8">{formatCurrency(calculatedCart.total, language)}</h3>
-             <div className="grid grid-cols-2 gap-4 mb-8">
-               <button onClick={()=>setPaymentMethod('cash')} className={`p-4 border-2 rounded-2xl flex flex-col items-center gap-2 ${paymentMethod==='cash'?'border-sky-500 bg-sky-50':'border-slate-100'}`}><Banknote size={32}/><span className="font-bold">Cash</span></button>
-               <button onClick={()=>setPaymentMethod('qr')} className={`p-4 border-2 rounded-2xl flex flex-col items-center gap-2 ${paymentMethod==='qr'?'border-sky-500 bg-sky-50':'border-slate-100'}`}><CreditCard size={32}/><span className="font-bold">QR Code</span></button>
-             </div>
-             <button onClick={processPayment} className="w-full bg-sky-600 text-white py-4 rounded-2xl font-bold mb-2">ยืนยันการชำระเงิน</button>
-             <button onClick={()=>setIsPaymentModalOpen(false)} className="w-full py-2 text-slate-400">ยกเลิก</button>
-          </div>
-        </div>
-      )}
-
       {showReceipt && currentOrder && (
-        <div className="fixed inset-0 bg-black/70 z-[100] flex items-center justify-center p-4">
-            <div className="bg-white rounded-xl w-full max-w-sm overflow-hidden flex flex-col">
-                <div id="receipt-content" className="p-8 text-black bg-white font-mono text-sm">
-                    <div className="text-center border-b border-dashed pb-4 mb-4">
-                        <h2 className="text-xl font-bold">{storeProfile.name}</h2>
-                        <p>{storeProfile.address}</p>
+        <div className="fixed inset-0 bg-black/80 z-[200] flex items-center justify-center p-4 backdrop-blur-xl">
+            <div className="bg-white rounded-3xl w-full max-w-sm overflow-hidden flex flex-col shadow-2xl receipt-zoom">
+                <div id="receipt-content" className="p-10 text-slate-800 bg-white font-mono text-[11px] leading-relaxed">
+                    <div className="text-center border-b-2 border-dashed border-slate-200 pb-6 mb-6">
+                        {storeProfile.logoUrl ? <img src={storeProfile.logoUrl} className="w-16 h-16 mx-auto mb-4 object-contain rounded-xl" /> : <div className="w-12 h-12 bg-sky-50 rounded-xl mx-auto mb-4 flex items-center justify-center text-sky-600 font-bold">CP</div>}
+                        <h2 className="text-lg font-bold uppercase tracking-widest">{storeProfile.name}</h2>
+                        <p className="text-[9px] text-slate-400 max-w-[200px] mx-auto mt-2 leading-tight uppercase">{storeProfile.address}</p>
                     </div>
-                    {currentOrder.items.map((it, i) => <div key={i} className="flex justify-between"><span>{it.name} x{it.quantity}</span><span>{formatCurrency(it.price*it.quantity, language)}</span></div>)}
-                    <div className="border-t border-dashed mt-4 pt-4 text-right font-bold text-lg">Total: {formatCurrency(currentOrder.total, language)}</div>
+                    <div className="space-y-3 mb-6">
+                      <div className="flex justify-between text-[9px] text-slate-400 uppercase font-bold tracking-widest"><span>Item</span><span>Price</span></div>
+                      {currentOrder.items.map((it, i) => (
+                        <div key={i} className="flex justify-between items-start gap-4">
+                           <span className="flex-1">{it.name} <span className="text-slate-400">x{it.quantity}</span></span>
+                           <span className="whitespace-nowrap font-bold">{formatCurrency(it.price * it.quantity, language)}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="border-t-2 border-dashed border-slate-200 mt-6 pt-6 space-y-2">
+                        <div className="flex justify-between text-slate-400 uppercase text-[9px] font-bold"><span>Subtotal:</span><span>{formatCurrency(currentOrder.subtotal || currentOrder.total, language)}</span></div>
+                        <div className="flex justify-between text-lg font-bold text-slate-900 pt-2"><span className="uppercase tracking-widest">Total:</span><span>{formatCurrency(currentOrder.total, language)}</span></div>
+                    </div>
+                    <div className="text-center mt-10 text-[9px] text-slate-300 font-bold uppercase tracking-[0.3em]">Thank You • ขอบพระคุณ</div>
                 </div>
-                <div className="p-4 bg-slate-50 flex gap-2"><button onClick={()=>setShowReceipt(false)} className="flex-1 p-2 bg-white border rounded">Close</button><button onClick={()=>window.print()} className="flex-1 p-2 bg-sky-600 text-white rounded font-bold">Print</button></div>
+                <div className="p-6 bg-slate-50 border-t flex gap-3">
+                  <button onClick={()=>setShowReceipt(false)} className="flex-1 py-4 bg-white border border-slate-200 rounded-2xl font-bold text-slate-400 text-xs uppercase tracking-widest">Close</button>
+                  <button onClick={()=>window.print()} className="flex-1 py-4 bg-sky-600 text-white rounded-2xl font-bold text-xs uppercase tracking-widest shadow-lg shadow-sky-100">Print Paper</button>
+                </div>
             </div>
         </div>
       )}

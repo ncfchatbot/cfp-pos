@@ -28,43 +28,49 @@ export enum AppMode {
 
 export interface Product {
   id: string;
-  code: string; // รหัสสินค้า SKU
+  code: string;
   name: string;
   price: number;
-  cost: number; // ต้นทุน
+  cost: number;
   category: string;
   stock: number;
   color: string;
-  imageUrl?: string; // URL รูปภาพสินค้า
+  imageUrl?: string;
 }
 
 export interface CartItem extends Product {
   quantity: number;
-  isFree?: boolean; // สินค้าแถม
-  originalPrice?: number; // ราคาเดิมก่อนลด
-  promotionApplied?: string; // ชื่อโปรโมชั่นที่ใช้
+  isFree?: boolean;
+  originalPrice?: number;
+  promotionApplied?: string;
 }
 
 export type LogisticsProvider = 'Anuchit' | 'Meexai' | 'Rungarun' | 'Other' | 'None';
-export type OrderStatus = 'Pending' | 'Paid' | 'Shipped' | 'Cancelled';
+
+// 7-Step Order Status
+export type OrderStatus = 
+  | 'Pending'    // 1. รอชำระ
+  | 'Paid'       // 2. ชำระแล้ว
+  | 'Packing'    // 3. กำลังแพ็ค
+  | 'Ready'      // 4. พร้อมส่ง
+  | 'Shipped'    // 5. ส่งแล้ว
+  | 'Delivered'  // 6. ถึงผู้รับ
+  | 'Completed'; // 7. สำเร็จ
 
 export interface SaleRecord {
   id: string;
   items: CartItem[];
-  total: number; // ยอดสุทธิหลังหักส่วนลดแล้ว (Net Total)
-  subtotal?: number; // ยอดรวมสินค้าก่อนหักส่วนลดท้ายบิล
-  discountValue?: number; // มูลค่าส่วนลดที่กรอก
-  discountType?: 'amount' | 'percent'; // ประเภทส่วนลด
-  
+  total: number;
+  subtotal?: number;
+  discountValue?: number;
+  discountType?: 'amount' | 'percent';
   date: string;
-  timestamp?: number; // For easier date filtering
+  timestamp: number;
   paymentMethod: 'cash' | 'qr' | 'transfer';
   status: OrderStatus;
-  
-  // Customer & Shipping Info
   customerName?: string;
   customerPhone?: string;
-  customerAddress?: string; // ที่อยู่
+  customerAddress?: string;
   shippingCarrier?: LogisticsProvider;
   shippingBranch?: string;
   trackingNumber?: string;
@@ -85,15 +91,9 @@ export interface Promotion {
   name: string;
   type: PromotionType;
   isActive: boolean;
-  
-  // เงื่อนไขสินค้าหลัก (รองรับหลาย SKU)
   targetSkus: string[]; 
-  
-  // สำหรับ Tiered Price (ซื้อ A จำนวน X ได้ราคา Z)
   tiers?: { minQty: number; price: number }[];
-  
-  // สำหรับ Buy X Get Y (ซื้อครบ X แถม Y)
   requiredQty?: number;
-  freeSku?: string; // SKU ของแถม
-  freeQty?: number; // จำนวนที่แถม
+  freeSku?: string;
+  freeQty?: number;
 }
