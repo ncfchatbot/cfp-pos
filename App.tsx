@@ -164,7 +164,7 @@ const App: React.FC = () => {
     }
   };
 
-  // Robust CSV Importer with Thai Character Support
+  // NEW: Optimized CSV Importer for robust parsing
   const handleImportCSV = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -173,36 +173,62 @@ const App: React.FC = () => {
     reader.onload = async (event) => {
       try {
         const text = event.target?.result as string;
-        // Split by line and filter empty lines
         const rows = text.split(/\r?\n/).filter(row => row.trim() !== '');
         if (rows.length < 1) {
-          alert('ไฟล์ว่างเปล่า');
+          alert('ไฟล์ไม่มีข้อมูล');
           return;
         }
 
+        // Auto-detect delimiter
+        const firstLine = rows[0];
+        const delimiter = firstLine.includes(';') ? ';' : ',';
+
         const importedProducts: Product[] = [];
-        // Detect header row by checking common keywords in the first row
-        const firstRow = rows[0].toLowerCase();
-        const keywords = ['name', 'product', 'สินค้า', 'ชื่อ', 'sku', 'รหัส'];
-        const startIdx = keywords.some(k => firstRow.includes(k)) ? 1 : 0;
+        const firstRowLower = firstLine.toLowerCase();
+        const headerKeywords = ['name', 'product', 'สินค้า', 'ชื่อ', 'รหัส', 'sku'];
+        const startIdx = headerKeywords.some(k => firstRowLower.includes(k)) ? 1 : 0;
 
         for (let i = startIdx; i < rows.length; i++) {
-          // Robust split: handle commas inside quotes
-          const cols = rows[i].match(/(".*?"|[^",\s]+)(?=\s*,|\s*$)/g) || rows[i].split(',').map(c => c.trim());
-          const cleanedCols = cols.map(c => c.trim().replace(/^"|"$/g, ''));
+          const row = rows[i];
+          let cols: string[] = [];
 
-          if (cleanedCols.length >= 2) {
-            // Helper to safely parse numbers with commas or spaces
-            const parseNum = (val: string) => Number(val.replace(/,/g, '').replace(/\s/g, '')) || 0;
+          // Handle CSV with quotes correctly
+          if (row.includes('"')) {
+            const parts = [];
+            let current = '';
+            let inQuotes = false;
+            for (let char of row) {
+              if (char === '"') inQuotes = !inQuotes;
+              else if (char === delimiter && !inQuotes) {
+                parts.push(current.trim());
+                current = '';
+              } else {
+                current += char;
+              }
+            }
+            parts.push(current.trim());
+            cols = parts;
+          } else {
+            cols = row.split(delimiter).map(c => c.trim());
+          }
+
+          if (cols.length >= 2 && cols[0]) {
+            const cleanNum = (val: string) => {
+              if (!val) return 0;
+              // Remove commas, spaces, and currency symbols
+              const cleaned = val.replace(/,/g, '').replace(/[^\d.-]/g, '');
+              const num = parseFloat(cleaned);
+              return isNaN(num) ? 0 : num;
+            };
 
             const product: Product = {
               id: uuidv4(),
-              name: cleanedCols[0] || 'Unknown Item',
-              code: cleanedCols[1] || `SKU-${Math.random().toString(36).substr(2, 5).toUpperCase()}`,
-              category: cleanedCols[2] || 'General',
-              cost: parseNum(cleanedCols[3] || '0'),
-              price: parseNum(cleanedCols[4] || '0'),
-              stock: parseNum(cleanedCols[5] || '0'),
+              name: cols[0],
+              code: cols[1] || `SKU-${Math.random().toString(36).substr(2, 5).toUpperCase()}`,
+              category: cols[2] || 'General',
+              cost: cleanNum(cols[3]),
+              price: cleanNum(cols[4]),
+              stock: cleanNum(cols[5]),
               color: COLORS[Math.floor(Math.random() * COLORS.length)],
             };
             
@@ -211,15 +237,14 @@ const App: React.FC = () => {
           }
         }
 
-        // If not cloud mode, we need to update products list manually
         if (!isCloudEnabled) {
           setProducts(prev => [...prev, ...importedProducts]);
         }
 
-        alert(`นำเข้าสินค้าสำเร็จ ${importedProducts.length} รายการ`);
+        alert(`นำเข้าสำเร็จ ${importedProducts.length} รายการ`);
       } catch (err) {
-        console.error('Import Error:', err);
-        alert('เกิดข้อผิดพลาดในการนำเข้าไฟล์ กรุณาตรวจสอบรูปแบบไฟล์ CSV');
+        console.error('Import CSV Error:', err);
+        alert('เกิดข้อผิดพลาด: โปรดตรวจสอบว่าไฟล์เป็น CSV (UTF-8) และคั่นด้วย Comma หรือ Semicolon');
       } finally {
         if (csvInputRef.current) csvInputRef.current.value = '';
       }
