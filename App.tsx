@@ -150,6 +150,33 @@ const App: React.FC = () => {
     return { items: cart, total, subtotal: total };
   }, [cart]);
 
+  const handleSendMessage = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!chatInput.trim() || isChatLoading) return;
+    const userMsg: Message = { id: uuidv4(), role: Role.USER, text: chatInput, timestamp: Date.now() };
+    setMessages(prev => [...prev, userMsg]);
+    setChatInput('');
+    setIsChatLoading(true);
+
+    try {
+      const history = messages.map(m => ({ role: m.role === Role.USER ? 'user' : 'model', parts: [{ text: m.text }] }));
+      const stream = await streamResponse(chatInput, mode, history);
+      if (stream) {
+        const botId = uuidv4();
+        setMessages(prev => [...prev, { id: botId, role: Role.MODEL, text: '', timestamp: Date.now() }]);
+        let fullText = '';
+        for await (const chunk of stream) {
+          fullText += chunk.text || '';
+          setMessages(prev => prev.map(m => m.id === botId ? { ...m, text: fullText } : m));
+        }
+      }
+    } catch (err) {
+      setMessages(prev => [...prev, { id: uuidv4(), role: Role.MODEL, text: 'Connection failed.', isError: true, timestamp: Date.now() }]);
+    } finally {
+      setIsChatLoading(false);
+    }
+  };
+
   const renderDashboard = () => {
     const totalSales = recentSales.reduce((s, o) => s + o.total, 0);
     const stockValueCost = products.reduce((s, p) => s + (p.cost * p.stock), 0);
@@ -192,6 +219,9 @@ const App: React.FC = () => {
                 </div>
               </div>
             ))}
+            {recentSales.length === 0 && (
+              <div className="py-10 text-center text-slate-300 text-xs italic">No activity yet.</div>
+            )}
           </div>
         </div>
       </div>
@@ -248,13 +278,16 @@ const App: React.FC = () => {
                    </div>
                  </button>
                ))}
+               {filteredProducts.length === 0 && (
+                 <div className="col-span-full py-20 text-center text-slate-300">No products found.</div>
+               )}
              </div>
           </div>
         </div>
         <div className="w-full md:w-96 bg-white border-l flex flex-col shadow-2xl z-10">
            <div className="p-5 border-b flex justify-between items-center">
              <h2 className="font-bold text-lg flex items-center gap-2"><ShoppingCart className="text-sky-600" /> {t.pos_cart_title}</h2>
-             <button onClick={() => {}} className="text-[10px] text-red-500 font-bold hover:bg-red-50 px-2 py-1 rounded-lg transition-colors uppercase tracking-widest">{t.pos_clear_cart}</button>
+             <button onClick={() => setCart([])} className="text-[10px] text-red-500 font-bold hover:bg-red-50 px-2 py-1 rounded-lg transition-colors uppercase tracking-widest">{t.pos_clear_cart}</button>
            </div>
            <div className="flex-1 overflow-y-auto p-4 space-y-3">
               {cart.map((item, idx) => (
@@ -265,11 +298,11 @@ const App: React.FC = () => {
                       </div>
                       <div className="flex items-center gap-3 bg-white rounded-xl px-2 py-1 border shadow-sm">
                           <button onClick={() => {
-                            setCart(prev => prev.map(i => i.id === item.id ? { ...i, quantity: Math.max(1, i.quantity - 1) } : i));
+                            setCart(prev => prev.map((i, ix) => ix === idx ? { ...i, quantity: Math.max(1, i.quantity - 1) } : i));
                           }} className="p-1 text-sky-600 hover:bg-sky-50 rounded"><Minus size={12} /></button>
                           <span className="w-5 text-center text-xs font-bold text-slate-700">{item.quantity}</span>
                           <button onClick={() => {
-                            setCart(prev => prev.map(i => i.id === item.id ? { ...i, quantity: i.quantity + 1 } : i));
+                            setCart(prev => prev.map((i, ix) => ix === idx ? { ...i, quantity: i.quantity + 1 } : i));
                           }} className="p-1 text-sky-600 hover:bg-sky-50 rounded"><Plus size={12} /></button>
                       </div>
                       <button onClick={() => setCart(prev => prev.filter((_, i) => i !== idx))} className="p-1.5 text-slate-300 hover:text-red-500 transition-colors"><Trash2 size={16}/></button>
@@ -310,7 +343,7 @@ const App: React.FC = () => {
                         <div className="flex items-center gap-4">
                             <div className="bg-sky-50 text-sky-600 p-3 rounded-2xl"><Package size={24}/></div>
                             <div>
-                                <h4 className="font-bold text-slate-800 text-lg">Order #{order.id}</h4>
+                                <h4 className="font-bold text-slate-800 text-lg">Order #{order.id.slice(-6)}</h4>
                                 <p className="text-xs text-slate-400 font-medium">{order.date} • {order.paymentMethod}</p>
                             </div>
                         </div>
@@ -374,6 +407,12 @@ const App: React.FC = () => {
                     </div>
                 </div>
             ))}
+            {recentSales.length === 0 && (
+              <div className="col-span-full py-20 flex flex-col items-center justify-center text-slate-300 opacity-50">
+                <ClipboardList size={64} className="mb-4" />
+                <p className="font-bold uppercase tracking-widest text-xs">No orders found.</p>
+              </div>
+            )}
         </div>
     </div>
   );
@@ -433,7 +472,7 @@ const App: React.FC = () => {
               </table>
             </div>
             {products.length === 0 && (
-              <div className="p-20 text-center opacity-30 text-slate-400">
+              <div className="p-20 text-center opacity-30 text-slate-400 flex flex-col items-center">
                 <Package size={64} className="mx-auto mb-4" />
                 <p className="font-bold uppercase tracking-widest text-xs">No Inventory Found</p>
               </div>
@@ -488,8 +527,8 @@ const App: React.FC = () => {
               <p className="text-2xl font-bold text-slate-800">{formatCurrency(recentSales.length > 0 ? totalSales / recentSales.length : 0, language)}</p>
             </div>
             <div className="p-4 rounded-2xl bg-slate-50">
-              <p className="text-slate-400 text-[10px] font-bold uppercase mb-1">Customer Re-engagement</p>
-              <p className="text-2xl font-bold text-slate-800">84%</p>
+              <p className="text-slate-400 text-[10px] font-bold uppercase mb-1">Success Rate</p>
+              <p className="text-2xl font-bold text-slate-800">100%</p>
             </div>
           </div>
         </div>
@@ -532,7 +571,6 @@ const App: React.FC = () => {
           <div className="col-span-full py-24 text-center">
             <Gift size={64} className="mx-auto text-slate-200 mb-4" />
             <h3 className="font-bold text-slate-400 uppercase tracking-widest text-sm">{t.promo_no_data}</h3>
-            <p className="text-slate-300 text-xs">Start creating deals to boost your coffee shop sales</p>
           </div>
         )}
       </div>
@@ -554,9 +592,9 @@ const App: React.FC = () => {
                      {storeProfile.logoUrl ? (
                        <img src={storeProfile.logoUrl} className="w-full h-full object-cover" />
                      ) : (
-                       <div className="text-slate-300 group-hover:text-sky-500 flex flex-col items-center gap-2">
-                          <ImagePlus size={32}/>
-                          <span className="text-[10px] font-bold uppercase tracking-widest">Brand Logo</span>
+                       <div className="text-slate-300 group-hover:text-sky-500 flex flex-col items-center gap-2 text-center">
+                          <ImagePlus size={32} className="mx-auto"/>
+                          <span className="text-[10px] font-bold uppercase tracking-widest">Logo</span>
                        </div>
                      )}
                   </div>
@@ -576,16 +614,16 @@ const App: React.FC = () => {
                       <input value={storeProfile.name} onChange={e => setStoreProfile({...storeProfile, name: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl text-sm font-bold text-slate-700 focus:ring-2 focus:ring-sky-500 outline-none transition-all"/>
                     </div>
                     <div className="space-y-1">
-                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Contact Phone</label>
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Phone</label>
                       <input value={storeProfile.phone} onChange={e => setStoreProfile({...storeProfile, phone: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl text-sm font-bold text-slate-700 focus:ring-2 focus:ring-sky-500 outline-none transition-all"/>
                     </div>
                   </div>
                   <div className="space-y-1">
-                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Store Address</label>
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Address</label>
                     <textarea value={storeProfile.address} onChange={e => setStoreProfile({...storeProfile, address: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl text-sm font-bold text-slate-700 h-24 focus:ring-2 focus:ring-sky-500 outline-none transition-all resize-none"/>
                   </div>
                   <button className="flex items-center gap-2 px-6 py-3 bg-sky-600 text-white rounded-2xl font-bold text-xs shadow-lg shadow-sky-100 hover:scale-95 transition-all">
-                    <Save size={16} /> Update Store Details
+                    <Save size={16} /> Save Changes
                   </button>
                </div>
             </div>
@@ -595,16 +633,16 @@ const App: React.FC = () => {
             <h3 className="font-bold text-slate-400 mb-6 flex items-center gap-2 text-[10px] uppercase tracking-widest"><DatabaseBackup size={16}/> Advanced Settings</h3>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <button className="p-6 bg-slate-50 rounded-2xl hover:bg-sky-50 border border-slate-100 hover:border-sky-200 flex flex-col items-center gap-3 transition-all">
-                  <Download className="text-sky-600"/><span className="text-[10px] font-bold uppercase tracking-widest">Backup Database</span>
+                  <Download className="text-sky-600"/><span className="text-[10px] font-bold uppercase tracking-widest">Backup</span>
                 </button>
                 <button className="p-6 bg-slate-50 rounded-2xl hover:bg-sky-50 border border-slate-100 hover:border-sky-200 flex flex-col items-center gap-3 transition-all">
-                  <Upload className="text-sky-600"/><span className="text-[10px] font-bold uppercase tracking-widest">Restore Database</span>
+                  <Upload className="text-sky-600"/><span className="text-[10px] font-bold uppercase tracking-widest">Restore</span>
                 </button>
                 <button 
                   onClick={() => { if(confirm('Factory Reset?')) { localStorage.clear(); window.location.reload(); } }} 
                   className="p-6 bg-red-50/50 rounded-2xl hover:bg-red-50 border border-red-100 flex flex-col items-center gap-3 transition-all text-red-500"
                 >
-                  <Trash2 /><span className="text-[10px] font-bold uppercase tracking-widest">Wipe All Data</span>
+                  <Trash2 /><span className="text-[10px] font-bold uppercase tracking-widest">Clear Data</span>
                 </button>
             </div>
           </div>
@@ -615,15 +653,15 @@ const App: React.FC = () => {
   const renderAI = () => (
     <div className="h-full flex flex-col bg-slate-50/50">
         <div className="p-5 border-b bg-white flex items-center justify-between shadow-sm">
-            <h2 className="font-bold flex items-center gap-3 text-slate-800"><Bot className="text-sky-600" /> AI Business Consultant</h2>
-            <button onClick={() => setMessages([])} className="text-[9px] font-bold uppercase tracking-widest text-slate-400 hover:text-red-500 px-3 py-1 bg-slate-50 rounded-full transition-colors">Reset Conversation</button>
+            <h2 className="font-bold flex items-center gap-3 text-slate-800"><Bot className="text-sky-600" /> AI Consultant</h2>
+            <button onClick={() => setMessages([])} className="text-[9px] font-bold uppercase tracking-widest text-slate-400 hover:text-red-500 px-3 py-1 bg-slate-50 rounded-full transition-colors">Reset</button>
         </div>
         <div className="flex-1 overflow-y-auto p-6 space-y-6 no-scrollbar">
             {messages.length === 0 && (
                 <div className="h-full flex flex-col items-center justify-center text-center max-w-sm mx-auto p-8">
-                    <div className="w-20 h-20 bg-sky-100 text-sky-600 rounded-[2.5rem] flex items-center justify-center mb-6 shadow-xl shadow-sky-100 active:rotate-12 transition-transform"><Sparkles size={36}/></div>
-                    <h3 className="font-bold text-slate-800 text-xl mb-2 tracking-tight">How can I help you today?</h3>
-                    <p className="text-xs text-slate-400 leading-relaxed">Ask me about your shop performance, inventory management tips, or marketing strategies.</p>
+                    <div className="w-20 h-20 bg-sky-100 text-sky-600 rounded-[2.5rem] flex items-center justify-center mb-6 shadow-xl shadow-sky-100"><Sparkles size={36}/></div>
+                    <h3 className="font-bold text-slate-800 text-xl mb-2 tracking-tight">AI Assistant</h3>
+                    <p className="text-xs text-slate-400 leading-relaxed">Ask me about your shop performance or strategies.</p>
                 </div>
             )}
             {messages.map(m => <ChatMessage key={m.id} message={m} />)}
@@ -635,12 +673,11 @@ const App: React.FC = () => {
             <div ref={chatEndRef} />
         </div>
         <div className="p-6 bg-white border-t">
-          {/* Fix: changed handleSendMessage to handleSendMessageToAI */}
-          <form onSubmit={handleSendMessageToAI} className="max-w-4xl mx-auto flex gap-3">
+          <form onSubmit={handleSendMessage} className="max-w-4xl mx-auto flex gap-3">
               <input 
                   value={chatInput} 
                   onChange={e => setChatInput(e.target.value)} 
-                  placeholder="Ask a question about your business..." 
+                  placeholder="Ask a question..." 
                   className="flex-1 p-4 bg-slate-50 border border-slate-100 rounded-2xl outline-none focus:ring-4 focus:ring-sky-100 text-sm font-medium transition-all"
               />
               <button 
@@ -653,6 +690,26 @@ const App: React.FC = () => {
         </div>
     </div>
   );
+
+  const processPayment = async () => {
+    if (cart.length === 0) return;
+    const newOrder: SaleRecord = {
+      id: uuidv4(),
+      items: [...cart],
+      total: calculatedCart.total,
+      subtotal: calculatedCart.subtotal,
+      date: new Date().toLocaleString(),
+      timestamp: Date.now(),
+      paymentMethod,
+      status: 'Paid',
+      customerName: language === 'th' ? 'ลูกค้าทั่วไป' : (language === 'en' ? 'Walk-in' : 'ລູກຄ້າທົ່ວໄປ'),
+    };
+    await saveOrderData(newOrder);
+    setCurrentOrder(newOrder);
+    setCart([]);
+    setIsPaymentModalOpen(false);
+    setShowReceipt(true);
+  };
 
   const handleSaveProduct = (e: React.FormEvent) => {
     e.preventDefault();
@@ -669,56 +726,6 @@ const App: React.FC = () => {
     };
     saveProductData(newProduct);
     setIsProductModalOpen(false);
-  };
-
-  // Fix: implemented processPayment function
-  const processPayment = async () => {
-    if (cart.length === 0) return;
-
-    const newOrder: SaleRecord = {
-      id: uuidv4(),
-      items: [...cart],
-      total: calculatedCart.total,
-      subtotal: calculatedCart.subtotal,
-      date: new Date().toLocaleString(language === 'lo' ? 'lo-LA' : (language === 'th' ? 'th-TH' : 'en-US')),
-      timestamp: Date.now(),
-      paymentMethod: paymentMethod,
-      status: 'Paid',
-      customerName: language === 'en' ? 'Walking Customer' : (language === 'th' ? 'ลูกค้าทั่วไป' : 'ລູກຄ້າທົ່ວໄປ'),
-    };
-
-    await saveOrderData(newOrder);
-    setCurrentOrder(newOrder);
-    setCart([]);
-    setIsPaymentModalOpen(false);
-    setShowReceipt(true);
-  };
-
-  const handleSendMessageToAI = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!chatInput.trim() || isChatLoading) return;
-    const userMsg: Message = { id: uuidv4(), role: Role.USER, text: chatInput, timestamp: Date.now() };
-    setMessages(prev => [...prev, userMsg]);
-    setChatInput('');
-    setIsChatLoading(true);
-
-    try {
-      const history = messages.map(m => ({ role: m.role === Role.USER ? 'user' : 'model', parts: [{ text: m.text }] }));
-      const stream = await streamResponse(chatInput, mode, history);
-      if (stream) {
-        const botId = uuidv4();
-        setMessages(prev => [...prev, { id: botId, role: Role.MODEL, text: '', timestamp: Date.now() }]);
-        let fullText = '';
-        for await (const chunk of stream) {
-          fullText += chunk.text || '';
-          setMessages(prev => prev.map(m => m.id === botId ? { ...m, text: fullText } : m));
-        }
-      }
-    } catch (err) {
-      setMessages(prev => [...prev, { id: uuidv4(), role: Role.MODEL, text: 'Connection failed.', isError: true, timestamp: Date.now() }]);
-    } finally {
-      setIsChatLoading(false);
-    }
   };
 
   return (
@@ -754,18 +761,17 @@ const App: React.FC = () => {
       {/* MODALS */}
       {isPaymentModalOpen && (
         <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-4 backdrop-blur-md">
-          <div className="bg-white rounded-[3rem] w-full max-w-sm p-8 text-center shadow-2xl scale-in">
+          <div className="bg-white rounded-[3rem] w-full max-w-sm p-8 text-center shadow-2xl">
              <div className="w-16 h-16 bg-sky-50 text-sky-600 rounded-3xl flex items-center justify-center mx-auto mb-6"><DollarSign size={32}/></div>
-             <p className="text-slate-400 mb-1 font-bold text-[10px] uppercase tracking-[0.2em]">Payable Amount</p>
+             <p className="text-slate-400 mb-1 font-bold text-[10px] uppercase tracking-[0.2em]">Amount Due</p>
              <h3 className="text-4xl font-bold mb-10 text-slate-800 tracking-tighter">{formatCurrency(calculatedCart.total, language)}</h3>
              <div className="grid grid-cols-3 gap-3 mb-10">
                <button onClick={()=>setPaymentMethod('cash')} className={`p-4 border-2 rounded-3xl flex flex-col items-center gap-2 transition-all ${paymentMethod==='cash'?'border-sky-500 bg-sky-50 text-sky-600 shadow-lg shadow-sky-100':'border-slate-50 text-slate-400'}`}><Banknote size={24}/><span className="text-[9px] font-bold uppercase">Cash</span></button>
                <button onClick={()=>setPaymentMethod('qr')} className={`p-4 border-2 rounded-3xl flex flex-col items-center gap-2 transition-all ${paymentMethod==='qr'?'border-sky-500 bg-sky-50 text-sky-600 shadow-lg shadow-sky-100':'border-slate-50 text-slate-400'}`}><Smartphone size={24}/><span className="text-[9px] font-bold uppercase">QR Pay</span></button>
                <button onClick={()=>setPaymentMethod('transfer')} className={`p-4 border-2 rounded-3xl flex flex-col items-center gap-2 transition-all ${paymentMethod==='transfer'?'border-sky-500 bg-sky-50 text-sky-600 shadow-lg shadow-sky-100':'border-slate-50 text-slate-400'}`}><CreditCard size={24}/><span className="text-[9px] font-bold uppercase">Bank</span></button>
              </div>
-             {/* Fix: calling processPayment here */}
              <button onClick={processPayment} className="w-full bg-sky-600 text-white py-5 rounded-[2rem] font-bold mb-4 shadow-xl shadow-sky-200 active:scale-95 transition-all text-sm uppercase tracking-widest">Process Payment</button>
-             <button onClick={()=>setIsPaymentModalOpen(false)} className="w-full py-2 text-slate-400 text-xs font-bold uppercase tracking-widest">Cancel Order</button>
+             <button onClick={()=>setIsPaymentModalOpen(false)} className="w-full py-2 text-slate-400 text-xs font-bold uppercase tracking-widest">Cancel</button>
           </div>
         </div>
       )}
@@ -773,19 +779,19 @@ const App: React.FC = () => {
       {isProductModalOpen && (
         <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-4 backdrop-blur-sm">
           <div className="bg-white rounded-[2.5rem] w-full max-w-md p-8 shadow-2xl">
-            <h3 className="text-xl font-bold mb-6 text-slate-800">{editingProduct ? 'Edit Product' : 'Create New Product'}</h3>
+            <h3 className="text-xl font-bold mb-6 text-slate-800">{editingProduct ? 'Edit Product' : 'Create Product'}</h3>
             <form onSubmit={handleSaveProduct} className="space-y-5">
               <div className="grid grid-cols-2 gap-4">
                 <div className="col-span-2 space-y-1"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Name</label><input name="name" required defaultValue={editingProduct?.name} className="w-full p-3.5 bg-slate-50 border border-slate-100 rounded-2xl text-sm font-bold focus:ring-4 focus:ring-sky-100 outline-none transition-all"/></div>
-                <div className="space-y-1"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">SKU Code</label><input name="code" required defaultValue={editingProduct?.code} className="w-full p-3.5 bg-slate-50 border border-slate-100 rounded-2xl text-sm font-bold focus:ring-4 focus:ring-sky-100 outline-none transition-all"/></div>
-                <div className="space-y-1"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Category</label><input name="category" required defaultValue={editingProduct?.category} className="w-full p-3.5 bg-slate-50 border border-slate-100 rounded-2xl text-sm font-bold focus:ring-4 focus:ring-sky-100 outline-none transition-all"/></div>
-                <div className="space-y-1"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Unit Cost</label><input name="cost" type="number" required defaultValue={editingProduct?.cost} className="w-full p-3.5 bg-slate-50 border border-slate-100 rounded-2xl text-sm font-bold focus:ring-4 focus:ring-sky-100 outline-none transition-all"/></div>
-                <div className="space-y-1"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Sale Price</label><input name="price" type="number" required defaultValue={editingProduct?.price} className="w-full p-3.5 bg-slate-50 border border-slate-100 rounded-2xl text-sm font-bold focus:ring-4 focus:ring-sky-100 outline-none transition-all text-sky-600"/></div>
-                <div className="col-span-2 space-y-1"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Stock Level</label><input name="stock" type="number" required defaultValue={editingProduct?.stock} className="w-full p-3.5 bg-slate-50 border border-slate-100 rounded-2xl text-sm font-bold focus:ring-4 focus:ring-sky-100 outline-none transition-all"/></div>
+                <div className="space-y-1"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">SKU</label><input name="code" required defaultValue={editingProduct?.code} className="w-full p-3.5 bg-slate-50 border border-slate-100 rounded-2xl text-sm font-bold focus:ring-4 focus:ring-sky-100 outline-none transition-all"/></div>
+                <div className="space-y-1"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Cat</label><input name="category" required defaultValue={editingProduct?.category} className="w-full p-3.5 bg-slate-50 border border-slate-100 rounded-2xl text-sm font-bold focus:ring-4 focus:ring-sky-100 outline-none transition-all"/></div>
+                <div className="space-y-1"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Cost</label><input name="cost" type="number" required defaultValue={editingProduct?.cost} className="w-full p-3.5 bg-slate-50 border border-slate-100 rounded-2xl text-sm font-bold focus:ring-4 focus:ring-sky-100 outline-none transition-all"/></div>
+                <div className="space-y-1"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Price</label><input name="price" type="number" required defaultValue={editingProduct?.price} className="w-full p-3.5 bg-slate-50 border border-slate-100 rounded-2xl text-sm font-bold focus:ring-4 focus:ring-sky-100 outline-none transition-all text-sky-600"/></div>
+                <div className="col-span-2 space-y-1"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Stock</label><input name="stock" type="number" required defaultValue={editingProduct?.stock} className="w-full p-3.5 bg-slate-50 border border-slate-100 rounded-2xl text-sm font-bold focus:ring-4 focus:ring-sky-100 outline-none transition-all"/></div>
               </div>
               <div className="flex gap-3 pt-4">
                 <button type="button" onClick={()=>setIsProductModalOpen(false)} className="flex-1 py-4 border-2 border-slate-100 rounded-2xl font-bold text-slate-400 text-xs uppercase tracking-widest">Discard</button>
-                <button type="submit" className="flex-2 py-4 bg-sky-600 text-white rounded-2xl font-bold shadow-lg shadow-sky-100 px-10 text-xs uppercase tracking-widest">Save Changes</button>
+                <button type="submit" className="flex-2 py-4 bg-sky-600 text-white rounded-2xl font-bold shadow-lg shadow-sky-100 px-10 text-xs uppercase tracking-widest">Save</button>
               </div>
             </form>
           </div>
@@ -794,7 +800,7 @@ const App: React.FC = () => {
 
       {showReceipt && currentOrder && (
         <div className="fixed inset-0 bg-black/80 z-[200] flex items-center justify-center p-4 backdrop-blur-xl">
-            <div className="bg-white rounded-3xl w-full max-w-sm overflow-hidden flex flex-col shadow-2xl receipt-zoom">
+            <div className="bg-white rounded-3xl w-full max-w-sm overflow-hidden flex flex-col shadow-2xl">
                 <div id="receipt-content" className="p-10 text-slate-800 bg-white font-mono text-[11px] leading-relaxed">
                     <div className="text-center border-b-2 border-dashed border-slate-200 pb-6 mb-6">
                         {storeProfile.logoUrl ? <img src={storeProfile.logoUrl} className="w-16 h-16 mx-auto mb-4 object-contain rounded-xl" /> : <div className="w-12 h-12 bg-sky-50 rounded-xl mx-auto mb-4 flex items-center justify-center text-sky-600 font-bold">CP</div>}
@@ -818,7 +824,7 @@ const App: React.FC = () => {
                 </div>
                 <div className="p-6 bg-slate-50 border-t flex gap-3">
                   <button onClick={()=>setShowReceipt(false)} className="flex-1 py-4 bg-white border border-slate-200 rounded-2xl font-bold text-slate-400 text-xs uppercase tracking-widest">Close</button>
-                  <button onClick={()=>window.print()} className="flex-1 py-4 bg-sky-600 text-white rounded-2xl font-bold text-xs uppercase tracking-widest shadow-lg shadow-sky-100">Print Paper</button>
+                  <button onClick={()=>window.print()} className="flex-1 py-4 bg-sky-600 text-white rounded-2xl font-bold text-xs uppercase tracking-widest shadow-lg shadow-sky-100">Print</button>
                 </div>
             </div>
         </div>
