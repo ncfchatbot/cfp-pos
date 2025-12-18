@@ -1,10 +1,13 @@
+
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { 
   Menu, Search, ShoppingCart, Plus, Minus, Trash2, 
   CreditCard, Banknote, Printer, Save, Edit, Loader2, Send, Sparkles, Store, Check,
   LayoutDashboard, Settings, UploadCloud, FileDown, ImagePlus, AlertTriangle, TrendingUp, DollarSign, Package,
   ClipboardList, Truck, MapPin, Phone, User, X, BarChart3, Wallet, PieChart, ChevronRight, History, DatabaseBackup,
-  Calendar, Gift, Tag, RefreshCw, Eraser, Cloud, CloudOff, Info, ArrowUpCircle, Filter, Wifi
+  Calendar, Gift, Tag, RefreshCw, Eraser, Cloud, CloudOff, Info, ArrowUpCircle, Filter, Wifi,
+  // Fix: Adding missing Download and Upload icons used in Settings section
+  Download, Upload
 } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import { streamResponse } from './services/gemini';
@@ -165,6 +168,7 @@ const App: React.FC = () => {
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
   useEffect(() => { if (editingPromotion) setPromoType(editingPromotion.type); else setPromoType('tiered_price'); }, [editingPromotion, isPromotionModalOpen]);
 
+  // --- CRUD Wrappers ---
   const saveProductData = async (product: Product) => {
       if (isCloudEnabled && db) await setDoc(doc(db, 'products', product.id), product);
       else setProducts(prev => { const exists = prev.find(p => p.id === product.id); return exists ? prev.map(p => p.id === product.id ? product : p) : [...prev, product]; });
@@ -214,6 +218,58 @@ const App: React.FC = () => {
     } else {
         setProducts(prev => prev.map(p => { const soldItem = orderToDelete.items.find(i => i.id === p.id); return soldItem ? { ...p, stock: p.stock + soldItem.quantity } : p; }));
         setRecentSales(prev => prev.filter(s => s.id !== id));
+    }
+  };
+
+  // --- CSV Handlers ---
+  const handleProductImport = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]; if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+       const lines = (ev.target?.result as string).split('\n');
+       const newP: Product[] = [];
+       for (let i=1; i<lines.length; i++) {
+         const line = lines[i].trim(); if(!line) continue;
+         const parts = line.split(',');
+         if (parts.length >= 4) {
+             const [code, name, price, cost, category, stock] = parts;
+             newP.push({ 
+                 id: uuidv4(), 
+                 code: code?.trim() || uuidv4().slice(0,6).toUpperCase(), 
+                 name: name.trim(), 
+                 price: Number(price) || 0, 
+                 cost: Number(cost) || 0, 
+                 category: category?.trim() || 'General', 
+                 stock: Number(stock) || 0, 
+                 color: `bg-slate-100 text-slate-800` 
+             });
+         }
+       }
+       newP.forEach(p => saveProductData(p));
+       alert(`${t.success}: ${newP.length} Items`);
+    };
+    reader.readAsText(file);
+  };
+
+  const downloadProductTemplate = () => {
+    const blob = new Blob(["code,name,price,cost,category,stock\nA001,Product Name,25000,15000,Food,100\n"], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = 'product_template.csv'; link.click();
+  };
+
+  const handleBackup = () => {
+    const data = JSON.stringify({ products, recentSales, storeProfile, promotions }, null, 2);
+    const blob = new Blob([data], { type: 'application/json' });
+    const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = `backup-${new Date().toISOString().slice(0,10)}.json`; link.click();
+  };
+
+  const handleClearAllData = () => {
+    if (confirm(t.confirm + '? ' + t.setting_clear_all)) {
+        if (isCloudEnabled && db) {
+            products.forEach(p => deleteProductData(p.id));
+            recentSales.forEach(s => deleteOrderData(s.id));
+        } else {
+            setProducts([]); setRecentSales([]); localStorage.clear(); window.location.reload();
+        }
     }
   };
 
@@ -306,15 +362,6 @@ const App: React.FC = () => {
     setIsProductModalOpen(false); setEditingProduct(null); setProductImagePreview(null);
   };
 
-  const handleSavePromotion = (e: React.FormEvent) => {
-      e.preventDefault(); const formData = new FormData(e.target as HTMLFormElement); const type = formData.get('type') as PromotionType;
-      const targetSkus = (formData.get('targetSkus') as string)?.split(/[\n,]+/).map(s => s.trim()).filter(Boolean) || [];
-      const tiers = []; for (let i = 0; i < 7; i++) { const qty = formData.get(`minQty${i}`); const price = formData.get(`price${i}`); if (qty && price) tiers.push({ minQty: Number(qty), price: Number(price) }); }
-      const newPromo: Promotion = { id: editingPromotion?.id || uuidv4(), name: formData.get('name') as string, type: type, isActive: true, targetSkus: targetSkus, ...(type === 'tiered_price' ? { tiers: tiers } : { requiredQty: Number(formData.get('requiredQty')), freeSku: formData.get('freeSku') as string, freeQty: Number(formData.get('freeQty')) }) };
-      savePromotionData(newPromo);
-      setIsPromotionModalOpen(false); setEditingPromotion(null);
-  };
-
   // --- Render Sections ---
   const renderDashboard = () => {
     const totalSales = recentSales.filter(s => s.status !== 'Cancelled').reduce((sum, s) => sum + s.total, 0);
@@ -398,9 +445,13 @@ const App: React.FC = () => {
 
   const renderStock = () => (
     <div className="p-4 md:p-6 h-full overflow-y-auto bg-slate-50/50">
-        <div className="flex justify-between items-center mb-6">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
             <h2 className="text-xl font-bold text-slate-800">{t.stock_title}</h2>
-            <button onClick={() => { setEditingProduct(null); setProductImagePreview(null); setIsProductModalOpen(true); }} className="bg-sky-600 text-white px-3 py-2 rounded-lg shadow-sm hover:bg-sky-700 flex gap-2 text-sm font-bold"><Plus size={16}/> {t.stock_add}</button>
+            <div className="flex gap-2 w-full sm:w-auto">
+                <button onClick={() => productCsvRef.current?.click()} className="flex-1 sm:flex-none px-3 py-2 bg-white border border-slate-200 text-slate-600 rounded-lg text-sm flex items-center justify-center gap-2 hover:bg-slate-50 transition-colors"><UploadCloud size={16}/> {t.setting_import_product}</button>
+                <button onClick={() => { setEditingProduct(null); setProductImagePreview(null); setIsProductModalOpen(true); }} className="flex-1 sm:flex-none bg-sky-600 text-white px-3 py-2 rounded-lg shadow-sm hover:bg-sky-700 flex items-center justify-center gap-2 text-sm font-bold"><Plus size={16}/> {t.stock_add}</button>
+                <input type="file" ref={productCsvRef} onChange={handleProductImport} className="hidden" accept=".csv" />
+            </div>
         </div>
         <div className="bg-white rounded-xl border border-slate-100 shadow-sm overflow-hidden overflow-x-auto">
             <table className="w-full text-left text-sm whitespace-nowrap">
@@ -423,7 +474,7 @@ const App: React.FC = () => {
                             </td>
                         </tr>
                     ))}
-                    {products.length === 0 && <tr><td colSpan={6} className="text-center py-12 text-slate-400">{t.order_no_data}</td></tr>}
+                    {products.length === 0 && <tr><td colSpan={6} className="text-center py-12 text-slate-400">ยังไม่มีรายการสินค้า กรุณาเพิ่มสินค้าหรือนำเข้าไฟล์ CSV</td></tr>}
                 </tbody>
             </table>
         </div>
@@ -451,7 +502,9 @@ const App: React.FC = () => {
   const renderSettings = () => (
     <div className="p-4 md:p-6 h-full overflow-y-auto bg-slate-50/50">
       <h2 className="text-xl font-bold text-slate-800 mb-6 flex items-center gap-2"><Settings className="text-sky-600" /> {t.setting_title}</h2>
-      <div className="max-w-2xl bg-white p-6 rounded-2xl shadow-sm border border-slate-100 mb-6">
+      
+      {/* Cloud Status Section */}
+      <div className="max-w-3xl bg-white p-6 rounded-2xl shadow-sm border border-slate-100 mb-6">
           <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2 text-sm"><Cloud size={16}/> สถานะการเชื่อมต่อ (Cloud Sync)</h3>
           {isCloudEnabled ? (
               <div className="bg-green-50 border border-green-200 rounded-xl p-4">
@@ -467,13 +520,62 @@ const App: React.FC = () => {
               </div>
           )}
       </div>
+
+      {/* Profile Section */}
+      <div className="max-w-3xl bg-white p-6 rounded-2xl shadow-sm border border-slate-100 mb-6">
+        <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2 text-sm"><Store size={16}/> {t.setting_shop_name}</h3>
+        <div className="flex flex-col md:flex-row gap-6 mb-6">
+          <div className="flex flex-col items-center gap-2">
+            <div className="w-24 h-24 rounded-xl bg-slate-100 border-2 border-dashed border-slate-300 flex items-center justify-center overflow-hidden relative group">
+              {storeProfile.logoUrl ? <img src={storeProfile.logoUrl} className="w-full h-full object-cover" /> : <Store size={32} className="text-slate-400" />}
+              <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"><button onClick={() => logoInputRef.current?.click()} className="text-white text-[10px] font-bold">Change</button></div>
+            </div>
+            <input type="file" ref={logoInputRef} onChange={(e) => { const file = e.target.files?.[0]; if(file){ const r = new FileReader(); r.onloadend = () => saveProfileData({ ...storeProfile, logoUrl: r.result as string }); r.readAsDataURL(file); } }} className="hidden" accept="image/*" />
+          </div>
+          <div className="flex-1 space-y-4">
+             <div><label className="text-xs font-bold text-slate-500 mb-1 block">{t.setting_shop_name}</label><input value={storeProfile.name} onChange={e => saveProfileData({ ...storeProfile, name: e.target.value })} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none focus:border-sky-500"/></div>
+             <div><label className="text-xs font-bold text-slate-500 mb-1 block">{t.setting_phone}</label><input value={storeProfile.phone} onChange={e => saveProfileData({ ...storeProfile, phone: e.target.value })} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none focus:border-sky-500"/></div>
+             <div><label className="text-xs font-bold text-slate-500 mb-1 block">{t.setting_address}</label><textarea rows={2} value={storeProfile.address} onChange={e => saveProfileData({ ...storeProfile, address: e.target.value })} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none focus:border-sky-500 resize-none"/></div>
+          </div>
+        </div>
+      </div>
+
+      {/* Data Management Section */}
+      <div className="max-w-3xl bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+        <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2 text-sm"><DatabaseBackup size={16}/> {t.setting_data_manage}</h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+           <div className="p-4 bg-slate-50 rounded-xl border border-slate-100">
+              <h4 className="font-bold text-xs mb-2 uppercase text-slate-500">{t.setting_import_product}</h4>
+              <p className="text-[10px] text-slate-400 mb-3">อัปโหลดไฟล์ CSV เพื่อเพิ่มสินค้าจำนวนมาก</p>
+              <div className="flex gap-2">
+                <button onClick={() => productCsvRef.current?.click()} className="flex-1 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold hover:bg-sky-50 hover:text-sky-600 transition-colors">เลือกไฟล์ CSV</button>
+                <button onClick={downloadProductTemplate} className="px-3 py-2 bg-white border border-slate-200 rounded-lg text-slate-400 hover:text-sky-600" title="Download Template"><FileDown size={14}/></button>
+              </div>
+           </div>
+           <div className="p-4 bg-slate-50 rounded-xl border border-slate-100">
+              <h4 className="font-bold text-xs mb-2 uppercase text-slate-500">{t.setting_backup} / {t.setting_restore}</h4>
+              <p className="text-[10px] text-slate-400 mb-3">สำรองข้อมูลทั้งหมดเป็นไฟล์ JSON</p>
+              <div className="flex gap-2">
+                <button onClick={handleBackup} className="flex-1 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold hover:bg-sky-50 hover:text-sky-600 transition-colors flex items-center justify-center gap-1"><Download size={12}/> Backup</button>
+                <button onClick={() => fileInputRef.current?.click()} className="flex-1 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold hover:bg-sky-50 hover:text-sky-600 transition-colors flex items-center justify-center gap-1"><Upload size={12}/> Restore</button>
+              </div>
+           </div>
+        </div>
+        
+        <div className="pt-6 border-t border-slate-100">
+           <h4 className="text-red-600 font-bold text-xs flex items-center gap-2 mb-4 uppercase"><AlertTriangle size={14}/> {t.setting_danger}</h4>
+           <div className="space-y-2">
+              <button onClick={handleClearAllData} className="w-full p-3 bg-red-50 text-red-600 rounded-xl text-xs font-bold border border-red-100 hover:bg-red-600 hover:text-white transition-all flex items-center justify-center gap-2"><Trash2 size={14}/> {t.setting_clear_all}</button>
+           </div>
+        </div>
+      </div>
     </div>
   );
 
   return (
     <div className={`flex h-screen bg-slate-100 text-slate-900 font-sans ${language === 'th' ? 'font-thai' : ''}`}>
       <input type="file" ref={fileInputRef} className="hidden" />
-      <Sidebar currentMode={mode} onModeChange={setMode} isOpen={isSidebarOpen} setIsOpen={setIsSidebarOpen} onExport={() => {}} onImport={() => {}} language={language} setLanguage={setLanguage} />
+      <Sidebar currentMode={mode} onModeChange={setMode} isOpen={isSidebarOpen} setIsOpen={setIsSidebarOpen} onExport={handleBackup} onImport={() => fileInputRef.current?.click()} language={language} setLanguage={setLanguage} />
       <main className="flex-1 flex flex-col h-full relative overflow-hidden">
         <header className="h-16 flex items-center justify-between px-4 bg-white border-b md:hidden flex-shrink-0">
           <button onClick={() => setIsSidebarOpen(true)} className="p-2 text-slate-500"><Menu /></button>
@@ -538,10 +640,6 @@ const App: React.FC = () => {
               <div className="grid grid-cols-2 gap-3">
                  <div><label className="text-xs font-bold text-slate-500 mb-1 block">{t.stock_cost}</label><input name="cost" type="number" required defaultValue={editingProduct?.cost} className="w-full p-2 border rounded-lg text-sm outline-none focus:border-sky-500"/></div>
                  <div><label className="text-xs font-bold text-slate-500 mb-1 block">{t.stock_price}</label><input name="price" type="number" required defaultValue={editingProduct?.price} className="w-full p-2 border rounded-lg text-sm outline-none focus:border-sky-500"/></div>
-              </div>
-              <div className="flex gap-3">
-                 <div className="flex-1"><label className="text-xs font-bold text-slate-500 mb-1 block">{t.stock_remaining}</label><input name="stock" type="number" required defaultValue={editingProduct?.stock} className="w-full p-2 border rounded-lg text-sm outline-none focus:border-sky-500"/></div>
-                 <div className="flex-1"><label className="text-xs font-bold text-slate-500 mb-1 block">Category</label><input name="category" required defaultValue={editingProduct?.category || 'General'} className="w-full p-2 border rounded-lg text-sm outline-none focus:border-sky-500"/></div>
               </div>
               <div className="flex gap-3 pt-2"><button type="button" onClick={()=>setIsProductModalOpen(false)} className="flex-1 py-2 border rounded-xl">{t.cancel}</button><button type="submit" className="flex-1 py-2 bg-sky-600 text-white rounded-xl font-bold">{t.save}</button></div>
             </form>
