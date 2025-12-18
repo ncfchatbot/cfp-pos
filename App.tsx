@@ -1,4 +1,3 @@
-
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { 
   Menu, Search, ShoppingCart, Plus, Minus, Trash2, 
@@ -6,8 +5,7 @@ import {
   LayoutDashboard, Settings, UploadCloud, FileDown, ImagePlus, AlertTriangle, TrendingUp, DollarSign, Package,
   ClipboardList, Truck, MapPin, Phone, User, X, BarChart3, Wallet, PieChart, ChevronRight, History, DatabaseBackup,
   Calendar, Gift, Tag, RefreshCw, Eraser, Cloud, CloudOff, Info, ArrowUpCircle, Filter, Wifi,
-  // Fix: Adding missing Download and Upload icons used in Settings section
-  Download, Upload
+  Download, Upload, Smartphone
 } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import { streamResponse } from './services/gemini';
@@ -58,6 +56,9 @@ const App: React.FC = () => {
   const [mode, setMode] = useState<AppMode>(AppMode.DASHBOARD);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   
+  // PWA Install State
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+
   const [language, setLanguage] = useState<Language>(() => {
     return (localStorage.getItem('pos_language') as Language) || 'lo';
   });
@@ -71,6 +72,23 @@ const App: React.FC = () => {
     localStorage.setItem('pos_language', language);
     document.body.className = `bg-slate-100 text-slate-900 h-screen overflow-hidden select-none ${language === 'th' ? 'font-thai' : ''}`;
   }, [language]);
+
+  // Handle PWA Install Prompt
+  useEffect(() => {
+    const handler = (e: any) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+    };
+    window.addEventListener('beforeinstallprompt', handler);
+    return () => window.removeEventListener('beforeinstallprompt', handler);
+  }, []);
+
+  const handleInstallClick = async () => {
+    if (!deferredPrompt) return;
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+    if (outcome === 'accepted') setDeferredPrompt(null);
+  };
 
   const t = translations[language];
 
@@ -503,6 +521,17 @@ const App: React.FC = () => {
     <div className="p-4 md:p-6 h-full overflow-y-auto bg-slate-50/50">
       <h2 className="text-xl font-bold text-slate-800 mb-6 flex items-center gap-2"><Settings className="text-sky-600" /> {t.setting_title}</h2>
       
+      {/* Install App Section (PWA) */}
+      {deferredPrompt && (
+        <div className="max-w-3xl bg-sky-600 p-6 rounded-2xl shadow-lg shadow-sky-200 mb-6 text-white flex flex-col sm:flex-row items-center justify-between gap-4">
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center"><Smartphone size={24}/></div>
+            <div><h3 className="font-bold">ติดตั้งแอป Coffee POS</h3><p className="text-xs text-white/80">ใช้งานแบบเต็มหน้าจอ และเข้าถึงได้ง่ายจากหน้าจอมือถือ</p></div>
+          </div>
+          <button onClick={handleInstallClick} className="w-full sm:w-auto px-6 py-2 bg-white text-sky-600 rounded-lg font-bold text-sm shadow-md hover:bg-sky-50 transition-colors">ติดตั้งเดี๋ยวนี้</button>
+        </div>
+      )}
+
       {/* Cloud Status Section */}
       <div className="max-w-3xl bg-white p-6 rounded-2xl shadow-sm border border-slate-100 mb-6">
           <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2 text-sm"><Cloud size={16}/> สถานะการเชื่อมต่อ (Cloud Sync)</h3>

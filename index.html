@@ -2,16 +2,16 @@
 <html lang="lo">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <title>Coffee Please POS - ລະບົບຈັດການຮ້ານຄ້າ</title>
     
     <!-- PWA Settings -->
     <link rel="manifest" href="./manifest.json" />
-    <meta name="theme-color" content="#0284c7" />
+    <meta name="theme-color" content="#0ea5e9" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="apple-mobile-web-app-title" content="Coffee Please POS" />
+    <meta name="apple-mobile-web-app-title" content="Coffee POS" />
     <link rel="apple-touch-icon" href="https://placehold.co/192x192/0284c7/ffffff?text=POS" />
 
     <script src="https://cdn.tailwindcss.com"></script>
@@ -43,12 +43,12 @@
     <style>
       body {
         font-family: 'Noto Sans Lao', 'Prompt', sans-serif;
-        overscroll-behavior-y: none; /* Prevent pull-to-refresh on mobile app mode */
+        overscroll-behavior-y: none;
+        padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
       }
       .font-thai {
         font-family: 'Prompt', sans-serif;
       }
-      /* Custom Scrollbar */
       ::-webkit-scrollbar {
         width: 6px;
         height: 6px;
@@ -65,22 +65,15 @@
       }
       
       @media print {
-        /* Hide everything by default */
         body * {
           visibility: hidden;
         }
-        
-        /* But ensure the root container is technically displayed so its children can be seen */
         #root {
           display: block !important;
         }
-        
-        /* Make the receipt content visible */
         #receipt-content, #receipt-content * {
           visibility: visible !important;
         }
-
-        /* Position the receipt at the very top-left of the paper */
         #receipt-content {
           position: absolute;
           left: 0;
@@ -95,19 +88,13 @@
           border: none !important;
           border-radius: 0 !important;
         }
-
-        /* Hide elements specifically marked as no-print */
         .no-print, .no-print * {
           display: none !important;
         }
-
-        /* Ensure background colors/graphics are printed */
         * {
           -webkit-print-color-adjust: exact !important;
           print-color-adjust: exact !important;
         }
-        
-        /* Hide scrollbars during print */
         ::-webkit-scrollbar {
           display: none;
         }

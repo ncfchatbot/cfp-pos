@@ -1,21 +1,24 @@
 {
   "name": "Coffee Please POS",
-  "short_name": "CoffeePlease",
+  "short_name": "CoffeePOS",
   "start_url": "./",
   "display": "standalone",
-  "background_color": "#f1f5f9",
-  "theme_color": "#0284c7",
-  "orientation": "any",
+  "background_color": "#ffffff",
+  "theme_color": "#0ea5e9",
+  "description": "Smart POS system for coffee shops",
+  "orientation": "portrait",
   "icons": [
     {
-      "src": "https://placehold.co/192x192/0284c7/ffffff?text=POS",
+      "src": "https://placehold.co/192x192/0ea5e9/ffffff?text=POS",
       "sizes": "192x192",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any maskable"
     },
     {
-      "src": "https://placehold.co/512x512/0284c7/ffffff?text=POS",
+      "src": "https://placehold.co/512x512/0ea5e9/ffffff?text=POS",
       "sizes": "512x512",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any maskable"
     }
   ]
 }
