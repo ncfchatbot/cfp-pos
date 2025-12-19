@@ -7,7 +7,7 @@ import {
   ClipboardList, Truck, MapPin, Phone, User, X, BarChart3, Wallet, PieChart, ChevronRight, History, DatabaseBackup,
   Calendar, Gift, Tag, RefreshCw, Eraser, Cloud, CloudOff, Info, ArrowUpCircle, Filter, Wifi,
   Download, Upload, Smartphone, Percent, Box, TruckIcon, CheckCircle2, Clock, FileSpreadsheet, ChevronDown,
-  FileDown as DownloadIcon
+  FileDown as DownloadIcon, PackageOpen, ShoppingBag
 } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import { streamResponse } from './services/gemini';
@@ -117,13 +117,10 @@ const App: React.FC = () => {
     }
   }, [products, recentSales, storeProfile, promotions, isDataLoaded, isCloudEnabled]);
 
+  // Fix: Add effect to scroll to bottom when messages are updated
   useEffect(() => {
-    if (editingPromotion) {
-      setSelectedPromoType(editingPromotion.type);
-    } else {
-      setSelectedPromoType('buy_x_get_y');
-    }
-  }, [editingPromotion, isPromotionModalOpen]);
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
 
   const saveProductData = async (product: Product) => {
     if (isCloudEnabled && db) {
@@ -136,17 +133,18 @@ const App: React.FC = () => {
     }
   };
 
-  const handleSaveProduct = async (e: React.FormEvent) => {
+  // Fix: Implement handleSaveProduct to resolve the error on line 377
+  const handleSaveProduct = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    const formData = new FormData(e.target as HTMLFormElement);
+    const formData = new FormData(e.currentTarget);
     const product: Product = {
       id: editingProduct?.id || uuidv4(),
       name: formData.get('name') as string,
       code: formData.get('code') as string,
       category: formData.get('category') as string,
-      cost: Number(formData.get('cost')) || 0,
-      price: Number(formData.get('price')) || 0,
-      stock: Number(formData.get('stock')) || 0,
+      cost: parseFloat(formData.get('cost') as string) || 0,
+      price: parseFloat(formData.get('price') as string) || 0,
+      stock: parseInt(formData.get('stock') as string) || 0,
       color: editingProduct?.color || COLORS[Math.floor(Math.random() * COLORS.length)],
       imageUrl: editingProduct?.imageUrl,
     };
@@ -155,18 +153,62 @@ const App: React.FC = () => {
     setEditingProduct(null);
   };
 
-  const savePromotionData = async (promo: Promotion) => {
-    if (isCloudEnabled && db) await setDoc(doc(db, 'promotions', promo.id), promo);
-    else {
-      setPromotions(prev => {
-        const exists = prev.find(p => p.id === promo.id);
-        return exists ? prev.map(p => p.id === promo.id ? promo : p) : [...prev, promo];
-      });
+  // Fix: Implement handleSendMessage for AI Chat mode
+  const handleSendMessage = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!chatInput.trim() || isChatLoading) return;
+
+    const userMsg: Message = {
+      id: uuidv4(),
+      role: Role.USER,
+      text: chatInput,
+      timestamp: Date.now()
+    };
+
+    setMessages(prev => [...prev, userMsg]);
+    setChatInput('');
+    setIsChatLoading(true);
+
+    const modelMsgId = uuidv4();
+    const modelMsg: Message = {
+      id: modelMsgId,
+      role: Role.MODEL,
+      text: '',
+      timestamp: Date.now()
+    };
+    setMessages(prev => [...prev, modelMsg]);
+
+    try {
+      const history = messages.map(m => ({
+        role: m.role === Role.USER ? 'user' : 'model',
+        parts: [{ text: m.text }]
+      }));
+
+      const streamResult = await streamResponse(userMsg.text, mode, history);
+      
+      if (streamResult) {
+        let fullResponse = '';
+        for await (const chunk of streamResult) {
+          const textChunk = chunk.text;
+          if (textChunk) {
+            fullResponse += textChunk;
+            setMessages(prev => prev.map(m => 
+              m.id === modelMsgId ? { ...m, text: fullResponse } : m
+            ));
+          }
+        }
+      }
+    } catch (error) {
+      console.error("AI Assistant Error:", error);
+      setMessages(prev => prev.map(m => 
+        m.id === modelMsgId ? { ...m, text: 'ขออภัย เกิดข้อผิดพลาดในการประมวลผล กรุณาลองใหม่อีกครั้ง', isError: true } : m
+      ));
+    } finally {
+      setIsChatLoading(false);
     }
   };
 
   const downloadCSVTemplate = () => {
-    // Standard headers with no BOM to avoid confusion, or explicit BOM for Excel
     const headers = ["Product Name", "SKU Code", "Category", "Cost Price", "Sale Price", "Stock Quantity"];
     const example = ["Americano", "COFFEE-01", "Drink", "5000", "15000", "50"];
     const csvContent = "\uFEFF" + [headers.join(","), example.join(",")].join("\n");
@@ -179,7 +221,6 @@ const App: React.FC = () => {
     document.body.removeChild(link);
   };
 
-  // Re-engineered CSV Importer: Advanced and Robust
   const handleImportCSV = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -188,76 +229,60 @@ const App: React.FC = () => {
     reader.onload = async (event) => {
       try {
         let text = event.target?.result as string;
-        
-        // 1. Strip UTF-8 BOM if present
-        if (text.charCodeAt(0) === 0xFEFF) {
-          text = text.substring(1);
-        }
+        text = text.replace(/^\uFEFF/, '').trim();
+        if (!text) throw new Error("Empty file");
 
-        const rows = text.split(/\r?\n/).filter(row => row.trim() !== '');
-        if (rows.length < 1) {
-          alert('ไม่พบข้อมูลในไฟล์');
-          return;
-        }
+        const lines = text.split(/\r?\n/).filter(l => l.trim() !== '');
+        const firstLine = lines[0];
+        const delimiter = firstLine.includes(';') ? ';' : ',';
 
-        // 2. Intelligent Delimiter Detection
-        const firstRow = rows[0];
-        const delimiter = firstRow.includes(';') ? ';' : ',';
-
-        // 3. Robust Row Parsing (Handles quotes and embedded delimiters)
-        const parseRow = (row: string) => {
-          const regex = new RegExp(`(?:${delimiter}|\\n|^)(?:"([^"]*(?:""[^"]*)*)"|([^"${delimiter}\\n]*))`, 'g');
-          const results = [];
-          let match;
-          while ((match = regex.exec(row)) !== null) {
-            results.push((match[1] || match[2] || "").trim().replace(/""/g, '"'));
+        const parseLine = (line: string, sep: string) => {
+          const result = [];
+          let current = "";
+          let inQuotes = false;
+          for (let i = 0; i < line.length; i++) {
+            const char = line[i];
+            if (char === '"' && line[i+1] === '"') { current += '"'; i++; }
+            else if (char === '"') inQuotes = !inQuotes;
+            else if (char === sep && !inQuotes) { result.push(current.trim()); current = ""; }
+            else current += char;
           }
-          return results;
+          result.push(current.trim());
+          return result;
         };
 
-        const firstRowParsed = parseRow(firstRow);
+        const firstRowParsed = parseLine(firstLine, delimiter);
         const headerKeywords = ['name', 'product', 'สินค้า', 'ชื่อ', 'รหัส', 'sku'];
         const isHeader = firstRowParsed.some(val => headerKeywords.some(k => val.toLowerCase().includes(k)));
         const startIdx = isHeader ? 1 : 0;
 
-        let successCount = 0;
-        const newProducts: Product[] = [];
+        let added = 0;
+        const newItems: Product[] = [];
 
-        for (let i = startIdx; i < rows.length; i++) {
-          const cols = parseRow(rows[i]);
-          if (cols.length < 2 || !cols[0]) continue; // Skip invalid rows
+        for (let i = startIdx; i < lines.length; i++) {
+          const cols = parseLine(lines[i], delimiter);
+          if (cols.length < 2 || !cols[0]) continue;
 
-          const cleanNum = (val: string) => {
-            if (!val) return 0;
-            const cleaned = val.replace(/,/g, '').replace(/[^\d.-]/g, '');
-            const n = parseFloat(cleaned);
-            return isNaN(n) ? 0 : n;
-          };
+          const cleanNum = (v: string) => parseFloat(v.replace(/,/g, '').replace(/[^\d.-]/g, '')) || 0;
 
           const p: Product = {
             id: uuidv4(),
             name: cols[0],
-            code: cols[1] || `SKU-${Math.random().toString(36).substr(2, 5).toUpperCase()}`,
+            code: cols[1] || `SKU-${uuidv4().slice(0, 5).toUpperCase()}`,
             category: cols[2] || 'General',
             cost: cleanNum(cols[3]),
             price: cleanNum(cols[4]),
             stock: cleanNum(cols[5]),
             color: COLORS[Math.floor(Math.random() * COLORS.length)],
           };
-
           await saveProductData(p);
-          newProducts.push(p);
-          successCount++;
+          newItems.push(p);
+          added++;
         }
-
-        if (!isCloudEnabled) {
-          setProducts(prev => [...prev, ...newProducts]);
-        }
-
-        alert(`นำเข้าเรียบร้อย! ทั้งหมด ${successCount} รายการ`);
+        if (!isCloudEnabled) setProducts(prev => [...prev, ...newItems]);
+        alert(`นำเข้าเรียบร้อย ${added} รายการ`);
       } catch (err) {
-        console.error('Import Error:', err);
-        alert('นำเข้าไม่สำเร็จ: กรุณาตรวจสอบว่าไฟล์เป็น .csv และเข้ารหัสแบบ UTF-8');
+        alert('นำเข้าล้มเหลว: โปรดตรวจสอบไฟล์ CSV อีกครั้ง');
       } finally {
         if (csvInputRef.current) csvInputRef.current.value = '';
       }
@@ -320,88 +345,20 @@ const App: React.FC = () => {
     }
   };
 
-  const handleSendMessage = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!chatInput.trim() || isChatLoading) return;
-    const userMsg: Message = { id: uuidv4(), role: Role.USER, text: chatInput, timestamp: Date.now() };
-    setMessages(prev => [...prev, userMsg]);
-    setChatInput('');
-    setIsChatLoading(true);
-    try {
-      const history = messages.map(m => ({ role: m.role === Role.USER ? 'user' : 'model', parts: [{ text: m.text }] }));
-      const stream = await streamResponse(chatInput, mode, history);
-      if (stream) {
-        const botId = uuidv4();
-        setMessages(prev => [...prev, { id: botId, role: Role.MODEL, text: '', timestamp: Date.now() }]);
-        let fullText = '';
-        for await (const chunk of stream) {
-          fullText += chunk.text || '';
-          setMessages(prev => prev.map(m => m.id === botId ? { ...m, text: fullText } : m));
-        }
-      }
-    } catch (err) {
-      setMessages(prev => [...prev, { id: uuidv4(), role: Role.MODEL, text: 'การเชื่อมต่อผิดพลาด', isError: true, timestamp: Date.now() }]);
-    } finally {
-      setIsChatLoading(false);
-    }
-  };
-
-  const handleSavePromotion = (e: React.FormEvent) => {
-    e.preventDefault();
-    const formData = new FormData(e.target as HTMLFormElement);
-    const promoType = selectedPromoType;
-    let tiers: { minQty: number; price: number }[] = [];
-    if (promoType === 'tiered_price') {
-      for (let i = 1; i <= 7; i++) {
-        const minQty = Number(formData.get(`tier_qty_${i}`));
-        const price = Number(formData.get(`tier_price_${i}`));
-        if (minQty > 0) tiers.push({ minQty, price });
-      }
-    }
-    const newPromo: Promotion = {
-      id: editingPromotion?.id || uuidv4(),
-      name: formData.get('name') as string,
-      type: promoType,
-      isActive: true,
-      targetSkus: (formData.get('skus') as string).split(',').map(s => s.trim()).filter(s => s !== ''),
-      requiredQty: Number(formData.get('requiredQty')) || 1,
-      freeQty: Number(formData.get('freeQty')) || 0,
-      freeSku: formData.get('freeSku') as string,
-      tiers: tiers.length > 0 ? tiers : undefined,
-    };
-    savePromotionData(newPromo);
-    setIsPromotionModalOpen(false);
-  };
-
   const renderDashboard = () => {
     const totalSales = recentSales.reduce((s, o) => s + o.total, 0);
     const stockValueCost = products.reduce((s, p) => s + (p.cost * p.stock), 0);
-    const stockValuePotential = products.reduce((s, p) => s + (p.price * p.stock), 0);
     const lowStockCount = products.filter(checkIsLowStock).length;
     return (
       <div className="p-4 md:p-6 h-full overflow-y-auto bg-slate-50/50">
         <h2 className="text-xl font-bold mb-6 flex items-center gap-2 text-slate-800"><LayoutDashboard className="text-sky-600" /> {t.dash_title}</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-          <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 flex flex-col justify-between">
-            <p className="text-slate-500 text-[10px] font-bold uppercase tracking-wider mb-2">{t.dash_sales_month}</p>
-            <h3 className="text-2xl font-bold text-sky-600 tracking-tight">{formatCurrency(totalSales, language)}</h3>
-          </div>
-          <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100"><p className="text-slate-500 text-[10px] font-bold uppercase tracking-wider mb-2">{t.dash_stock_value}</p><h3 className="text-2xl font-bold text-amber-600 tracking-tight">{formatCurrency(stockValueCost, language)}</h3></div>
-          <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100"><p className="text-slate-500 text-[10px] font-bold uppercase tracking-wider mb-2">{t.dash_stock_potential}</p><h3 className="text-2xl font-bold text-emerald-600 tracking-tight">{formatCurrency(stockValuePotential, language)}</h3></div>
-          <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100"><p className="text-slate-500 text-[10px] font-bold uppercase tracking-wider mb-2">{t.dash_low_stock}</p><h3 className={`text-2xl font-bold tracking-tight ${lowStockCount > 0 ? 'text-red-500' : 'text-slate-400'}`}>{lowStockCount} items</h3></div>
+          <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100"><p className="text-slate-500 text-[10px] font-bold uppercase mb-2">{t.dash_sales_month}</p><h3 className="text-2xl font-bold text-sky-600 tracking-tight">{formatCurrency(totalSales, language)}</h3></div>
+          <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100"><p className="text-slate-500 text-[10px] font-bold uppercase mb-2">{t.dash_stock_value}</p><h3 className="text-2xl font-bold text-amber-600 tracking-tight">{formatCurrency(stockValueCost, language)}</h3></div>
+          <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100"><p className="text-slate-500 text-[10px] font-bold uppercase mb-2">ออเดอร์ทั้งหมด</p><h3 className="text-2xl font-bold text-emerald-600 tracking-tight">{recentSales.length}</h3></div>
+          <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100"><p className="text-slate-500 text-[10px] font-bold uppercase mb-2">{t.dash_low_stock}</p><h3 className={`text-2xl font-bold ${lowStockCount > 0 ? 'text-red-500' : 'text-slate-400'}`}>{lowStockCount}</h3></div>
         </div>
-        <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm">
-          <h3 className="font-bold text-slate-700 mb-5 flex items-center gap-2"><History size={20} className="text-sky-500" /> กิจกรรมล่าสุด</h3>
-          <div className="space-y-4">
-            {recentSales.slice(0, 5).map(s => (
-              <div key={s.id} className="flex justify-between items-center p-4 hover:bg-slate-50 rounded-2xl transition-all group">
-                <div className="flex items-center gap-4"><div className="w-12 h-12 rounded-2xl bg-sky-50 text-sky-600 flex items-center justify-center font-bold text-sm group-hover:bg-sky-600 group-hover:text-white transition-colors">#{s.id.slice(-4)}</div><div><p className="text-sm font-bold text-slate-800">{s.customerName}</p><p className="text-[10px] text-slate-400">{s.date}</p></div></div>
-                <div className="text-right"><p className="font-bold text-sky-600 text-sm mb-1">{formatCurrency(s.total, language)}</p><span className="text-[9px] bg-sky-100 text-sky-700 px-2 py-0.5 rounded-full font-bold uppercase tracking-tighter">{s.status}</span></div>
-              </div>
-            ))}
-            {recentSales.length === 0 && <div className="py-10 text-center text-slate-300 text-xs italic">ยังไม่มีข้อมูล</div>}
-          </div>
-        </div>
+        <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm"><h3 className="font-bold text-slate-700 mb-5 flex items-center gap-2"><History size={20} className="text-sky-500" /> กิจกรรมล่าสุด</h3><div className="space-y-4">{recentSales.slice(0, 5).map(s => (<div key={s.id} className="flex justify-between items-center p-4 hover:bg-slate-50 rounded-2xl"><div className="flex items-center gap-4"><div className="w-10 h-10 rounded-xl bg-sky-50 text-sky-600 flex items-center justify-center font-bold text-xs">#{s.id.slice(-4)}</div><div><p className="text-sm font-bold text-slate-800">{s.customerName}</p><p className="text-[10px] text-slate-400">{s.date}</p></div></div><div className="text-right"><p className="font-bold text-sky-600 text-sm mb-1">{formatCurrency(s.total, language)}</p><span className="text-[9px] bg-sky-100 text-sky-700 px-2 py-0.5 rounded-full font-bold uppercase">{s.status}</span></div></div>))}{recentSales.length === 0 && <div className="py-10 text-center text-slate-300 text-xs italic">ยังไม่มีกิจกรรม</div>}</div></div>
       </div>
     );
   };
@@ -409,28 +366,51 @@ const App: React.FC = () => {
   const renderPOS = () => {
     const categories = ['All', ...Array.from(new Set(products.map(p => p.category)))];
     const filteredProducts = products.filter(p => (selectedCategory === 'All' || p.category === selectedCategory) && (p.name.toLowerCase().includes(searchQuery.toLowerCase()) || p.code.toLowerCase().includes(searchQuery.toLowerCase())));
+    
+    if (products.length === 0) {
+      return (
+        <div className="h-full flex flex-col items-center justify-center bg-slate-50 p-8 text-center">
+          <div className="w-24 h-24 bg-white rounded-full flex items-center justify-center shadow-sm mb-6 text-slate-300"><PackageOpen size={48}/></div>
+          <h3 className="text-xl font-bold text-slate-800 mb-2">ยังไม่มีสินค้าในระบบ</h3>
+          <p className="text-sm text-slate-500 mb-8 max-w-xs">เพิ่มสินค้าด้วยตนเองหรือนำเข้าจากไฟล์ CSV เพื่อเริ่มการขาย</p>
+          <div className="flex gap-4">
+            <button onClick={() => setMode(AppMode.STOCK)} className="px-6 py-3 bg-sky-600 text-white rounded-2xl font-bold text-sm shadow-lg shadow-sky-100">เพิ่มสินค้า</button>
+            <button onClick={() => csvInputRef.current?.click()} className="px-6 py-3 bg-white border border-slate-200 text-slate-600 rounded-2xl font-bold text-sm">นำเข้า CSV</button>
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className="flex h-full flex-col md:flex-row overflow-hidden bg-slate-50/50">
         <div className="flex-1 flex flex-col min-w-0">
           <div className="p-4 bg-white border-b space-y-3">
-             <div className="relative"><Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} /><input value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder={t.pos_search_placeholder} className="w-full pl-10 pr-4 py-3 bg-slate-50 border rounded-2xl outline-none focus:ring-2 focus:ring-sky-500 text-sm transition-all"/></div>
-             <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">{categories.map(cat => (<button key={cat} onClick={() => setSelectedCategory(cat)} className={`px-5 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all ${selectedCategory === cat ? 'bg-sky-600 text-white shadow-lg shadow-sky-200' : 'bg-white border text-slate-500 hover:bg-slate-50'}`}>{cat === 'All' ? t.pos_all_cat : cat}</button>))}</div>
+             <div className="relative"><Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} /><input value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder={t.pos_search_placeholder} className="w-full pl-10 pr-4 py-3 bg-slate-50 border rounded-2xl outline-none focus:ring-2 focus:ring-sky-500 text-sm"/></div>
+             <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">{categories.map(cat => (<button key={cat} onClick={() => setSelectedCategory(cat)} className={`px-5 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all ${selectedCategory === cat ? 'bg-sky-600 text-white shadow-lg shadow-sky-200' : 'bg-white border text-slate-500'}`}>{cat === 'All' ? t.pos_all_cat : cat}</button>))}</div>
           </div>
           <div className="flex-1 p-4 overflow-y-auto"><div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">{filteredProducts.map(p => (<button key={p.id} onClick={() => addToCart(p)} className="bg-white p-4 rounded-3xl shadow-sm border border-slate-100 hover:border-sky-300 transition-all text-left flex flex-col h-full group"><div className={`w-full aspect-square rounded-2xl ${p.color} mb-4 flex items-center justify-center text-2xl font-bold overflow-hidden group-hover:scale-105 transition-transform`}>{p.imageUrl ? <img src={p.imageUrl} className="w-full h-full object-cover" /> : p.name.charAt(0)}</div><h3 className="font-bold text-slate-800 text-sm line-clamp-2 mb-1 flex-1">{p.name}</h3><div className="flex justify-between items-center mt-2"><p className="text-sky-600 font-bold text-sm">{formatCurrency(p.price, language)}</p><span className="text-[10px] text-slate-300 font-mono">{p.stock}</span></div></button>))}{filteredProducts.length === 0 && <div className="col-span-full py-20 text-center text-slate-300">ไม่พบสินค้า</div>}</div></div>
         </div>
         <div className="w-full md:w-96 bg-white border-l flex flex-col shadow-2xl z-10">
-           <div className="p-5 border-b flex justify-between items-center"><h2 className="font-bold text-lg flex items-center gap-2"><ShoppingCart className="text-sky-600" /> {t.pos_cart_title}</h2><button onClick={() => setCart([])} className="text-[10px] text-red-500 font-bold hover:bg-red-50 px-2 py-1 rounded-lg transition-colors uppercase tracking-widest">{t.pos_clear_cart}</button></div>
-           <div className="flex-1 overflow-y-auto p-4 space-y-3">{cart.map((item, idx) => (<div key={`${item.id}-${idx}`} className="flex items-center gap-3 p-3 rounded-2xl bg-slate-50 border border-slate-100 hover:bg-white hover:shadow-md transition-all"><div className="flex-1 min-w-0"><h4 className="font-bold text-xs truncate text-slate-800">{item.name}</h4><p className="text-[10px] text-sky-600 font-bold">{formatCurrency(item.price, language)}</p></div><div className="flex items-center gap-3 bg-white rounded-xl px-2 py-1 border shadow-sm"><button onClick={() => { setCart(prev => prev.map((i, ix) => ix === idx ? { ...i, quantity: Math.max(1, i.quantity - 1) } : i)); }} className="p-1 text-sky-600 hover:bg-sky-50 rounded"><Minus size={12} /></button><span className="w-5 text-center text-xs font-bold text-slate-700">{item.quantity}</span><button onClick={() => { setCart(prev => prev.map((i, ix) => ix === idx ? { ...i, quantity: i.quantity + 1 } : i)); }} className="p-1 text-sky-600 hover:bg-sky-50 rounded"><Plus size={12} /></button></div><button onClick={() => setCart(prev => prev.filter((_, i) => i !== idx))} className="p-1.5 text-slate-300 hover:text-red-500 transition-colors"><Trash2 size={16}/></button></div>))}{cart.length === 0 && <div className="h-full flex flex-col items-center justify-center text-slate-300 p-8 text-center opacity-50"><ShoppingCart size={48} className="mb-4" /><p className="text-xs font-bold uppercase tracking-widest">รถเข็นว่างเปล่า</p></div>}</div>
-           <div className="p-6 bg-white border-t space-y-4 shadow-[0_-4px_20px_-5px_rgba(0,0,0,0.1)]"><div className="flex justify-between items-center px-1"><span className="font-bold text-slate-500 text-sm uppercase tracking-widest">{t.pos_net_total}</span><span className="text-3xl font-bold text-sky-600 tracking-tighter">{formatCurrency(calculatedCart.total, language)}</span></div><button onClick={() => setIsPaymentModalOpen(true)} disabled={cart.length === 0} className="w-full bg-sky-600 text-white py-4 rounded-2xl font-bold disabled:opacity-30 disabled:cursor-not-allowed shadow-lg shadow-sky-200 active:scale-[0.98] transition-all flex items-center justify-center gap-2"><Check size={20} /> {t.pos_pay}</button></div>
+           <div className="p-5 border-b flex justify-between items-center font-bold text-lg"><h2 className="flex items-center gap-2"><ShoppingCart className="text-sky-600" /> {t.pos_cart_title}</h2><button onClick={() => setCart([])} className="text-xs text-red-500 uppercase">ล้าง</button></div>
+           <div className="flex-1 overflow-y-auto p-4 space-y-3">{cart.map((item, idx) => (<div key={`${item.id}-${idx}`} className="flex items-center gap-3 p-3 rounded-2xl bg-slate-50 border border-slate-100"><div className="flex-1 min-w-0"><h4 className="font-bold text-xs truncate text-slate-800">{item.name}</h4><p className="text-[10px] text-sky-600 font-bold">{formatCurrency(item.price, language)}</p></div><div className="flex items-center gap-3 bg-white rounded-xl px-2 py-1 border shadow-sm"><button onClick={() => { setCart(prev => prev.map((i, ix) => ix === idx ? { ...i, quantity: Math.max(1, i.quantity - 1) } : i)); }} className="p-1 text-sky-600"><Minus size={12} /></button><span className="w-5 text-center text-xs font-bold text-slate-700">{item.quantity}</span><button onClick={() => { setCart(prev => prev.map((i, ix) => ix === idx ? { ...i, quantity: i.quantity + 1 } : i)); }} className="p-1 text-sky-600"><Plus size={12} /></button></div><button onClick={() => setCart(prev => prev.filter((_, i) => i !== idx))} className="text-slate-300 hover:text-red-500"><Trash2 size={16}/></button></div>))}{cart.length === 0 && <div className="h-full flex flex-col items-center justify-center text-slate-200 p-8 text-center"><ShoppingBag size={48} className="mb-4" /><p className="text-xs font-bold uppercase tracking-widest">รถเข็นว่าง</p></div>}</div>
+           <div className="p-6 bg-white border-t space-y-4"><div className="flex justify-between items-center"><span className="font-bold text-slate-500 text-sm">ยอดรวม</span><span className="text-3xl font-bold text-sky-600 tracking-tighter">{formatCurrency(calculatedCart.total, language)}</span></div><button onClick={() => setIsPaymentModalOpen(true)} disabled={cart.length === 0} className="w-full bg-sky-600 text-white py-4 rounded-2xl font-bold disabled:opacity-30 shadow-lg shadow-sky-100 flex items-center justify-center gap-2 transition-all active:scale-95"><Check size={20} /> ชำระเงิน</button></div>
         </div>
       </div>
     );
   };
 
   const renderOrders = () => (
-    <div className="p-4 md:p-6 h-full overflow-y-auto bg-slate-50/50">
+    <div className="p-4 md:p-6 h-full overflow-y-auto bg-slate-50/50 min-h-full">
         <h2 className="text-xl font-bold mb-8 flex items-center gap-2 text-slate-800"><ClipboardList className="text-sky-600" /> {t.menu_orders}</h2>
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">{recentSales.map(order => (<div key={order.id} className="bg-white rounded-3xl border border-slate-100 p-6 shadow-sm hover:shadow-md transition-all"><div className="flex flex-col sm:flex-row justify-between gap-4 mb-8"><div className="flex items-center gap-4"><div className="bg-sky-50 text-sky-600 p-3 rounded-2xl"><Package size={24}/></div><div><h4 className="font-bold text-slate-800 text-lg">ออเดอร์ #{order.id.slice(-6)}</h4><p className="text-xs text-slate-400 font-medium">{order.date} • {order.paymentMethod}</p></div></div><div className="flex items-center gap-3"><span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">สถานะ:</span><select value={order.status} onChange={(e) => handleStatusChange(order.id, e.target.value as OrderStatus)} className="bg-sky-50 text-sky-700 text-xs font-bold px-4 py-2 rounded-xl border border-sky-100 outline-none focus:ring-2 focus:ring-sky-500 cursor-pointer appearance-none text-center">{ORDER_STATUS_STEPS.map(step => (<option key={step} value={step}>{t[`order_status_${step.toLowerCase()}` as keyof typeof t] || step}</option>))}</select></div></div><div className="relative mb-10 px-2 flex items-center"><div className="absolute left-0 right-0 h-1 bg-slate-100 z-0"></div><div className="absolute left-0 h-1 bg-sky-600 z-0 transition-all duration-500" style={{ width: `${(ORDER_STATUS_STEPS.indexOf(order.status) / (ORDER_STATUS_STEPS.length - 1)) * 100}%` }}></div><div className="flex justify-between w-full relative z-10">{ORDER_STATUS_STEPS.map((step, idx) => { const currentIdx = ORDER_STATUS_STEPS.indexOf(order.status); const isPast = idx < currentIdx; const isCurrent = idx === currentIdx; return (<div key={step} className="flex flex-col items-center group"><div className={`w-10 h-10 rounded-full flex items-center justify-center transition-all duration-300 border-4 ${isPast ? 'bg-sky-600 border-sky-200 text-white' : isCurrent ? 'bg-white border-sky-600 text-sky-600 scale-110 shadow-lg' : 'bg-white border-slate-100 text-slate-300'}`}>{idx === 0 && <Clock size={16}/>}{idx === 1 && <Wallet size={16}/>}{idx === 2 && <Box size={16}/>}{idx === 3 && <Package size={16}/>}{idx === 4 && <TruckIcon size={16}/>}{idx === 5 && <MapPin size={16}/>}{idx === 6 && <CheckCircle2 size={16}/>}</div></div>); })}</div></div><div className="border-t border-slate-50 pt-5 flex justify-between items-center"><div className="flex flex-col"><span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Customer</span><span className="text-sm font-bold text-slate-700">{order.customerName}</span></div><div className="text-right"><span className="text-xl font-bold text-sky-600 tracking-tight">{formatCurrency(order.total, language)}</span></div></div></div>))}</div>
+        {recentSales.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-32 text-slate-300 bg-white rounded-[3rem] border border-dashed border-slate-200">
+             <ShoppingBag size={64} className="mb-4 opacity-50" />
+             <p className="font-bold uppercase tracking-widest text-xs">ยังไม่มีรายการขายในวันนี้</p>
+             <button onClick={() => setMode(AppMode.POS)} className="mt-6 text-sky-600 font-bold text-sm underline">เริ่มการขายใหม่</button>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 pb-20">{recentSales.map(order => (<div key={order.id} className="bg-white rounded-3xl border border-slate-100 p-6 shadow-sm"><div className="flex flex-col sm:flex-row justify-between gap-4 mb-6"><div className="flex items-center gap-4"><div className="bg-sky-50 text-sky-600 p-3 rounded-2xl"><Package size={24}/></div><div><h4 className="font-bold text-slate-800 text-lg">ออเดอร์ #{order.id.slice(-6)}</h4><p className="text-xs text-slate-400 font-medium">{order.date}</p></div></div><select value={order.status} onChange={(e) => handleStatusChange(order.id, e.target.value as OrderStatus)} className="bg-sky-50 text-sky-700 text-xs font-bold px-4 py-2 rounded-xl border border-sky-100 outline-none">{ORDER_STATUS_STEPS.map(step => (<option key={step} value={step}>{step}</option>))}</select></div><div className="border-t border-slate-50 pt-5 flex justify-between items-center"><div className="flex flex-col"><span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Customer</span><span className="text-sm font-bold text-slate-700">{order.customerName}</span></div><div className="text-right"><span className="text-xl font-bold text-sky-600 tracking-tight">{formatCurrency(order.total, language)}</span></div></div></div>))}</div>
+        )}
     </div>
   );
 
@@ -438,62 +418,80 @@ const App: React.FC = () => {
     <div className="p-4 md:p-6 h-full overflow-y-auto bg-slate-50/50">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8">
             <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2"><Package className="text-sky-600" /> {t.stock_title}</h2>
-            <div className="flex flex-wrap gap-2 w-full sm:w-auto">
-                <button onClick={downloadCSVTemplate} className="flex-1 sm:flex-none bg-sky-50 text-sky-600 px-4 py-2.5 rounded-2xl text-xs font-bold flex items-center justify-center gap-2 border border-sky-100 transition-all hover:bg-sky-100 shadow-sm"><DownloadIcon size={16}/> ตัวอย่าง CSV</button>
-                <button onClick={() => csvInputRef.current?.click()} className="flex-1 sm:flex-none bg-emerald-50 text-emerald-600 px-4 py-2.5 rounded-2xl text-xs font-bold flex items-center justify-center gap-2 border border-emerald-100 transition-all hover:bg-emerald-100 shadow-sm"><FileSpreadsheet size={16}/> นำเข้าสินค้า</button>
-                <button onClick={() => { setEditingProduct(null); setIsProductModalOpen(true); }} className="flex-1 sm:flex-none bg-sky-600 text-white px-5 py-2.5 rounded-2xl text-xs font-bold flex items-center justify-center gap-2 shadow-lg shadow-sky-100 transition-all hover:bg-sky-700"><Plus size={16}/> เพิ่มใหม่</button>
+            <div className="flex gap-2 w-full sm:w-auto">
+                <button onClick={downloadCSVTemplate} className="flex-1 sm:flex-none bg-sky-50 text-sky-600 px-4 py-2.5 rounded-2xl text-xs font-bold flex items-center justify-center gap-2 border border-sky-100"><DownloadIcon size={16}/> ตัวอย่าง CSV</button>
+                <button onClick={() => csvInputRef.current?.click()} className="flex-1 sm:flex-none bg-emerald-50 text-emerald-600 px-4 py-2.5 rounded-2xl text-xs font-bold flex items-center justify-center gap-2 border border-emerald-100"><FileSpreadsheet size={16}/> นำเข้า</button>
+                <button onClick={() => { setEditingProduct(null); setIsProductModalOpen(true); }} className="flex-1 sm:flex-none bg-sky-600 text-white px-5 py-2.5 rounded-2xl text-xs font-bold flex items-center justify-center gap-2 shadow-lg shadow-sky-100"><Plus size={16}/> เพิ่มใหม่</button>
             </div>
         </div>
-        <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden"><div className="overflow-x-auto"><table className="w-full text-left text-sm whitespace-nowrap"><thead className="bg-slate-50/50 border-b border-slate-100 text-slate-500"><tr><th className="px-6 py-4 font-bold text-[10px] uppercase tracking-wider">รหัส SKU</th><th className="px-6 py-4 font-bold text-[10px] uppercase tracking-wider">ชื่อสินค้า</th><th className="px-6 py-4 text-right font-bold text-[10px] uppercase tracking-wider">ราคาขาย</th><th className="px-6 py-4 text-center font-bold text-[10px] uppercase tracking-wider">คงเหลือ</th><th className="px-6 py-4 text-center font-bold text-[10px] uppercase tracking-wider">จัดการ</th></tr></thead><tbody className="divide-y divide-slate-50">{products.map(p => (<tr key={p.id} className="hover:bg-slate-50/50 transition-colors"><td className="px-6 py-4 font-mono text-[10px] text-slate-400">{p.code}</td><td className="px-6 py-4 font-bold text-slate-700">{p.name}</td><td className="px-6 py-4 text-right font-bold text-sky-600">{formatCurrency(p.price, language)}</td><td className="px-6 py-4 text-center"><span className={`px-3 py-1 rounded-full font-bold text-[10px] ${checkIsLowStock(p) ? 'bg-red-100 text-red-600' : 'bg-slate-100 text-slate-500'}`}>{p.stock} units</span></td><td className="px-6 py-4"><div className="flex justify-center gap-2"><button onClick={() => { setEditingProduct(p); setIsProductModalOpen(true); }} className="p-2 text-slate-300 hover:text-sky-600 hover:bg-sky-50 rounded-xl transition-all"><Edit size={16}/></button><button onClick={() => { if (confirm('ยืนยันลบสิค้า?')) setProducts(prev => prev.filter(it => it.id !== p.id)); }} className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all"><Trash2 size={16}/></button></div></td></tr>))}</tbody></table></div></div>
+        <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden"><div className="overflow-x-auto"><table className="w-full text-left text-sm whitespace-nowrap"><thead className="bg-slate-50/50 border-b text-slate-500"><tr><th className="px-6 py-4 font-bold text-[10px] uppercase">รหัส SKU</th><th className="px-6 py-4 font-bold text-[10px] uppercase">ชื่อสินค้า</th><th className="px-6 py-4 text-right font-bold text-[10px] uppercase">ราคาขาย</th><th className="px-6 py-4 text-center font-bold text-[10px] uppercase">คงเหลือ</th><th className="px-6 py-4 text-center font-bold text-[10px] uppercase">จัดการ</th></tr></thead><tbody className="divide-y divide-slate-50">{products.map(p => (<tr key={p.id} className="hover:bg-slate-50/50"><td className="px-6 py-4 font-mono text-[10px] text-slate-400">{p.code}</td><td className="px-6 py-4 font-bold text-slate-700">{p.name}</td><td className="px-6 py-4 text-right font-bold text-sky-600">{formatCurrency(p.price, language)}</td><td className="px-6 py-4 text-center"><span className={`px-3 py-1 rounded-full font-bold text-[10px] ${checkIsLowStock(p) ? 'bg-red-100 text-red-600' : 'bg-slate-100 text-slate-500'}`}>{p.stock} units</span></td><td className="px-6 py-4"><div className="flex justify-center gap-2"><button onClick={() => { setEditingProduct(p); setIsProductModalOpen(true); }} className="p-2 text-slate-300 hover:text-sky-600 rounded-xl transition-all"><Edit size={16}/></button><button onClick={() => { if (confirm('ยืนยันลบสิค้า?')) setProducts(prev => prev.filter(it => it.id !== p.id)); }} className="p-2 text-slate-300 hover:text-red-500 rounded-xl transition-all"><Trash2 size={16}/></button></div></td></tr>))}</tbody></table></div>{products.length === 0 && <div className="p-20 text-center text-slate-300 text-xs italic">ไม่มีสินค้าในคลัง</div>}</div>
     </div>
   );
 
-  const renderPromotions = () => (
-    <div className="p-4 md:p-6 h-full overflow-y-auto bg-slate-50/50">
-      <div className="flex justify-between items-center mb-8"><h2 className="text-xl font-bold text-slate-800 flex items-center gap-2"><Tag className="text-sky-600" /> {t.menu_promotions}</h2><button onClick={() => { setEditingPromotion(null); setIsPromotionModalOpen(true); }} className="bg-sky-600 text-white px-5 py-2.5 rounded-2xl text-xs font-bold flex items-center gap-2 shadow-lg shadow-sky-100 transition-all hover:bg-sky-700"><Plus size={16}/> {t.promo_add}</button></div>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">{promotions.map(p => (<div key={p.id} className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm hover:shadow-md transition-all relative overflow-hidden group"><div className={`absolute top-0 right-0 p-1 px-3 text-[8px] font-bold uppercase rounded-bl-xl ${p.isActive ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-400'}`}>{p.isActive ? 'Active' : 'Disabled'}</div><div className="bg-sky-50 text-sky-600 w-12 h-12 rounded-2xl flex items-center justify-center mb-4 group-hover:bg-sky-600 group-hover:text-white transition-all"><Gift size={24} /></div><h3 className="font-bold text-slate-800 text-lg mb-2">{p.name}</h3><p className="text-xs text-slate-400 mb-6 uppercase tracking-wider font-bold">{p.type === 'buy_x_get_y' ? t.promo_buy_get : t.promo_tiered}</p><div className="flex justify-between items-center border-t border-slate-50 pt-4"><button onClick={() => { setEditingPromotion(p); setIsPromotionModalOpen(true); }} className="text-sky-600 font-bold text-xs hover:underline">แก้ไขแผน</button><button onClick={() => { if(confirm('ยืนยันลบโปรโมชั่น?')) setPromotions(prev => prev.filter(it => it.id !== p.id)); }} className="text-slate-300 hover:text-red-500 transition-colors"><Trash2 size={16}/></button></div></div>))}{promotions.length === 0 && <div className="col-span-full py-24 text-center text-slate-300 opacity-50 flex flex-col items-center"><Gift size={64} className="mb-4" /><h3 className="font-bold text-slate-400 uppercase tracking-widest text-sm">{t.promo_no_data}</h3></div>}</div>
-    </div>
-  );
-
-  const renderReports = () => {
-    const totalProfit = recentSales.reduce((s, o) => s + (o.total - o.items.reduce((acc, item) => acc + (item.cost * item.quantity), 0)), 0);
-    return (
-      <div className="p-4 md:p-6 h-full overflow-y-auto bg-slate-50/50">
-        <h2 className="text-xl font-bold mb-8 flex items-center gap-2 text-slate-800"><BarChart3 className="text-sky-600" /> {t.menu_reports}</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8"><div className="bg-white p-8 rounded-3xl border border-slate-100 shadow-sm"><p className="text-slate-500 text-[10px] font-bold uppercase tracking-wider mb-2">กำไรสุทธิโดยประมาณ</p><h3 className="text-4xl font-bold text-sky-600 tracking-tighter mb-4">{formatCurrency(totalProfit, language)}</h3></div><div className="bg-white p-8 rounded-3xl border border-slate-100 shadow-sm flex flex-col justify-center"><p className="text-center text-[10px] font-bold text-slate-400 uppercase tracking-widest">แนวโน้มยอดขาย</p></div></div>
-      </div>
-    );
-  };
-
-  const renderSettings = () => (
-    <div className="p-4 md:p-6 h-full overflow-y-auto bg-slate-50/50">
-      <h2 className="text-xl font-bold text-slate-800 mb-8 flex items-center gap-2"><Settings className="text-sky-600" /> {t.setting_title}</h2>
-      <div className="max-w-4xl space-y-6">
-          <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100">
-            <h3 className="font-bold text-slate-400 mb-6 flex items-center gap-2 text-[10px] uppercase tracking-widest"><Store size={16}/> ข้อมูลร้านค้า</h3>
-            <div className="flex flex-col md:flex-row gap-10">
-               <div className="flex flex-col items-center gap-4"><div onClick={() => logoInputRef.current?.click()} className="w-36 h-36 rounded-3xl bg-slate-50 border-2 border-dashed border-slate-200 flex flex-col items-center justify-center cursor-pointer overflow-hidden group hover:border-sky-400 transition-all">{storeProfile.logoUrl ? <img src={storeProfile.logoUrl} className="w-full h-full object-cover" /> : <div className="text-slate-300 flex flex-col items-center gap-2"><ImagePlus size={32}/><span className="text-[10px] font-bold uppercase">โลโก้</span></div>}</div><input type="file" ref={logoInputRef} className="hidden" accept="image/*" onChange={e => { const f = e.target.files?.[0]; if (f) { const r = new FileReader(); r.onloadend = () => setStoreProfile(prev => ({ ...prev, logoUrl: r.result as string })); r.readAsDataURL(f); } }} /></div>
-               <div className="flex-1 space-y-5"><div className="grid grid-cols-1 sm:grid-cols-2 gap-4"><div className="space-y-1"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">ชื่อร้าน</label><input value={storeProfile.name} onChange={e => setStoreProfile({...storeProfile, name: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl text-sm font-bold outline-none"/></div><div className="space-y-1"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">เบอร์โทร</label><input value={storeProfile.phone} onChange={e => setStoreProfile({...storeProfile, phone: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl text-sm font-bold outline-none"/></div></div><div className="space-y-1"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">ที่อยู่</label><textarea value={storeProfile.address} onChange={e => setStoreProfile({...storeProfile, address: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl text-sm font-bold h-24 outline-none resize-none"/></div><button onClick={()=>alert('บันทึกสำเร็จ')} className="flex items-center gap-2 px-6 py-3 bg-sky-600 text-white rounded-2xl font-bold text-xs shadow-lg hover:scale-95 transition-all"><Save size={16} /> บันทึกการตั้งค่า</button></div>
-            </div>
-          </div>
-          <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100">
-            <h3 className="font-bold text-slate-400 mb-6 flex items-center gap-2 text-[10px] uppercase tracking-widest"><DatabaseBackup size={16}/> ระบบข้อมูล</h3>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                <button onClick={downloadCSVTemplate} className="p-6 bg-sky-50 rounded-2xl hover:bg-sky-100 border border-sky-100 flex flex-col items-center gap-3 transition-all text-sky-600"><DownloadIcon /><span className="text-[10px] font-bold uppercase tracking-widest">Template CSV</span></button>
-                <button onClick={() => csvInputRef.current?.click()} className="p-6 bg-emerald-50 rounded-2xl hover:bg-emerald-100 border border-emerald-100 flex flex-col items-center gap-3 transition-all text-emerald-600"><Upload /><span className="text-[10px] font-bold uppercase tracking-widest">นำเข้า CSV</span></button>
-                <button className="p-6 bg-slate-50 rounded-2xl hover:bg-slate-100 border border-slate-100 flex flex-col items-center gap-3 transition-all text-slate-500"><Download /><span className="text-[10px] font-bold uppercase tracking-widest">สำรอง (SQL)</span></button>
-                <button onClick={() => { if(confirm('รีเซ็ตข้อมูลทั้งหมด?')) { localStorage.clear(); window.location.reload(); } }} className="p-6 bg-red-50/50 rounded-2xl hover:bg-red-50 border border-red-100 flex flex-col items-center gap-3 transition-all text-red-500"><Trash2 /><span className="text-[10px] font-bold uppercase tracking-widest">ล้างข้อมูล</span></button>
-            </div>
-          </div>
-      </div>
-    </div>
-  );
-
+  // Fix: Implement renderAI to provide the AI Assistant interface
   const renderAI = () => (
-    <div className="h-full flex flex-col bg-slate-50/50">
-        <div className="p-5 border-b bg-white flex items-center justify-between shadow-sm"><h2 className="font-bold flex items-center gap-3 text-slate-800"><Bot className="text-sky-600" /> ที่ปรึกษา AI</h2></div>
-        <div className="flex-1 overflow-y-auto p-6 space-y-6 no-scrollbar">{messages.map(m => <ChatMessage key={m.id} message={m} />)}{isChatLoading && (<div className="flex gap-3 items-center text-sky-600 text-[10px] font-bold uppercase tracking-widest bg-sky-50 w-fit px-4 py-2 rounded-2xl"><Loader2 size={14} className="animate-spin" /> กำลังประมวลผล...</div>)}<div ref={chatEndRef} /></div>
-        <div className="p-6 bg-white border-t"><form onSubmit={handleSendMessage} className="max-w-4xl mx-auto flex gap-3"><input value={chatInput} onChange={e => setChatInput(e.target.value)} placeholder="พิมพ์คำถามที่นี่..." className="flex-1 p-4 bg-slate-50 border border-slate-100 rounded-2xl outline-none focus:ring-4 focus:ring-sky-100 text-sm font-medium transition-all"/><button disabled={isChatLoading || !chatInput.trim()} className="bg-sky-600 text-white px-6 rounded-2xl disabled:opacity-30 disabled:cursor-not-allowed hover:bg-sky-700 shadow-lg shadow-sky-100 transition-all flex items-center justify-center"><Send size={20}/></button></form></div>
+    <div className="flex flex-col h-full bg-white">
+      <div className="p-4 border-b flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-sky-500 to-purple-600 flex items-center justify-center text-white shadow-lg shadow-sky-100">
+            <Bot size={20} />
+          </div>
+          <div>
+            <h2 className="font-bold text-slate-800 text-sm">{t.menu_ai}</h2>
+            <div className="flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+              <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Online</span>
+            </div>
+          </div>
+        </div>
+        <button onClick={() => setMessages([])} className="p-2 text-slate-300 hover:text-red-500 transition-colors" title="Clear Chat">
+          <Eraser size={18} />
+        </button>
+      </div>
+
+      <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-4">
+        {messages.length === 0 ? (
+          <div className="h-full flex flex-col items-center justify-center text-center p-8">
+            <div className="w-20 h-20 bg-sky-50 rounded-3xl flex items-center justify-center text-sky-600 mb-6">
+              <Sparkles size={40} className="animate-pulse" />
+            </div>
+            <h3 className="text-lg font-bold text-slate-800 mb-2">ยินดีต้อนรับสู่ผู้ช่วย AI</h3>
+            <p className="text-sm text-slate-500 max-w-xs mx-auto">
+              สอบถามเกี่ยวกับการจัดการร้านค้า การตั้งราคา โปรโมชั่น หรือปรึกษาเรื่องธุรกิจได้เลยครับ
+            </p>
+          </div>
+        ) : (
+          messages.map((m) => <ChatMessage key={m.id} message={m} />)
+        )}
+        {isChatLoading && (
+          <div className="flex justify-start">
+            <div className="bg-slate-50 border border-slate-100 p-3 rounded-2xl rounded-tl-none flex gap-2 items-center">
+              <Loader2 size={16} className="text-sky-500 animate-spin" />
+              <span className="text-xs font-bold text-slate-400 animate-pulse">AI กำลังประมวลผล...</span>
+            </div>
+          </div>
+        )}
+        <div ref={chatEndRef} />
+      </div>
+
+      <div className="p-4 border-t bg-slate-50/50">
+        <form onSubmit={handleSendMessage} className="flex gap-2 max-w-4xl mx-auto">
+          <input
+            value={chatInput}
+            onChange={(e) => setChatInput(e.target.value)}
+            placeholder="พิมพ์คำถามของคุณที่นี่..."
+            className="flex-1 p-4 bg-white border border-slate-200 rounded-2xl text-sm outline-none focus:ring-2 focus:ring-sky-500 shadow-sm"
+            disabled={isChatLoading}
+          />
+          <button
+            type="submit"
+            disabled={!chatInput.trim() || isChatLoading}
+            className="bg-sky-600 text-white p-4 rounded-2xl shadow-lg shadow-sky-100 disabled:opacity-50 transition-all active:scale-95"
+          >
+            {isChatLoading ? <Loader2 className="animate-spin" size={20} /> : <Send size={20} />}
+          </button>
+        </form>
+      </div>
     </div>
   );
 
@@ -501,9 +499,17 @@ const App: React.FC = () => {
     <div className={`flex h-screen bg-slate-100 text-slate-900 font-sans ${language === 'th' ? 'font-thai' : ''}`}>
       <input type="file" ref={csvInputRef} className="hidden" accept=".csv" onChange={handleImportCSV} />
       <Sidebar currentMode={mode} onModeChange={setMode} isOpen={isSidebarOpen} setIsOpen={setIsSidebarOpen} onExport={()=>{}} onImport={() => csvInputRef.current?.click()} language={language} setLanguage={setLanguage} />
-      <main className="flex-1 flex flex-col h-full relative overflow-hidden">
+      <main className="flex-1 flex flex-col h-full relative overflow-hidden bg-slate-50/30">
         <header className="h-16 flex items-center justify-between px-4 bg-white border-b md:hidden flex-shrink-0"><button onClick={() => setIsSidebarOpen(true)} className="p-2 text-slate-500"><Menu /></button><span className="font-bold text-sky-600 tracking-tight">Coffee Please</span><div className="w-8"/></header>
-        <div className="flex-1 overflow-hidden">{mode === AppMode.DASHBOARD && renderDashboard()}{mode === AppMode.POS && renderPOS()}{mode === AppMode.ORDERS && renderOrders()}{mode === AppMode.STOCK && renderStock()}{mode === AppMode.REPORTS && renderReports()}{mode === AppMode.PROMOTIONS && renderPromotions()}{mode === AppMode.AI && renderAI()}{mode === AppMode.SETTINGS && renderSettings()}</div>
+        <div className="flex-1 overflow-hidden relative">
+            <div className="absolute inset-0 overflow-y-auto">
+              {mode === AppMode.DASHBOARD && renderDashboard()}
+              {mode === AppMode.POS && renderPOS()}
+              {mode === AppMode.ORDERS && renderOrders()}
+              {mode === AppMode.STOCK && renderStock()}
+              {mode === AppMode.AI && renderAI()}
+            </div>
+        </div>
       </main>
 
       {/* MODALS */}
@@ -515,18 +521,7 @@ const App: React.FC = () => {
 
       {isProductModalOpen && (
         <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-4 backdrop-blur-sm">
-          <div className="bg-white rounded-[2.5rem] w-full max-w-md p-8 shadow-2xl"><h3 className="text-xl font-bold mb-6 text-slate-800">{editingProduct ? 'แก้ไขสินค้า' : 'เพิ่มสินค้าใหม่'}</h3><form onSubmit={handleSaveProduct} className="space-y-5"><div className="grid grid-cols-2 gap-4"><div className="col-span-2 space-y-1"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">ชื่อสินค้า</label><input name="name" required defaultValue={editingProduct?.name} className="w-full p-3.5 bg-slate-50 border border-slate-100 rounded-2xl text-sm font-bold outline-none"/></div><div className="space-y-1"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">รหัส SKU</label><input name="code" required defaultValue={editingProduct?.code} className="w-full p-3.5 bg-slate-50 border border-slate-100 rounded-2xl text-sm font-bold outline-none"/></div><div className="space-y-1"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">หมวดหมู่</label><input name="category" required defaultValue={editingProduct?.category} className="w-full p-3.5 bg-slate-50 border border-slate-100 rounded-2xl text-sm font-bold outline-none"/></div><div className="space-y-1"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">ราคาทุน</label><input name="cost" type="number" required defaultValue={editingProduct?.cost} className="w-full p-3.5 bg-slate-50 border border-slate-100 rounded-2xl text-sm font-bold outline-none"/></div><div className="space-y-1"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">ราคาขาย</label><input name="price" type="number" required defaultValue={editingProduct?.price} className="w-full p-3.5 bg-slate-50 border border-slate-100 rounded-2xl text-sm font-bold outline-none text-sky-600"/></div><div className="col-span-2 space-y-1"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">คงเหลือ</label><input name="stock" type="number" required defaultValue={editingProduct?.stock} className="w-full p-3.5 bg-slate-50 border border-slate-100 rounded-2xl text-sm font-bold outline-none"/></div></div><div className="flex gap-3 pt-4"><button type="button" onClick={()=>setIsProductModalOpen(false)} className="flex-1 py-4 border-2 border-slate-100 rounded-2xl font-bold text-slate-400 text-xs uppercase tracking-widest">ยกเลิก</button><button type="submit" className="flex-2 py-4 bg-sky-600 text-white rounded-2xl font-bold shadow-lg px-10 text-xs uppercase tracking-widest">บันทึก</button></div></form></div>
-        </div>
-      )}
-
-      {isPromotionModalOpen && (
-        <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-4 backdrop-blur-sm">
-          <div className="bg-white rounded-[2.5rem] w-full max-w-2xl p-8 shadow-2xl overflow-y-auto max-h-[90vh]"><div className="flex justify-between items-center mb-6"><h3 className="text-xl font-bold text-slate-800">{editingPromotion ? 'แก้ไขโปรโมชั่น' : 'สร้างโปรโมชั่นใหม่'}</h3><button onClick={() => setIsPromotionModalOpen(false)} className="text-slate-400 hover:text-slate-600"><X/></button></div><form onSubmit={handleSavePromotion} className="space-y-6"><div className="grid grid-cols-1 md:grid-cols-2 gap-6"><div className="space-y-1"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">ชื่อโปรโมชั่น</label><input name="name" required defaultValue={editingPromotion?.name} className="w-full p-3.5 bg-slate-50 border border-slate-100 rounded-2xl text-sm font-bold outline-none"/></div><div className="space-y-1"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">ประเภท</label><select name="type" value={selectedPromoType} onChange={(e) => setSelectedPromoType(e.target.value as PromotionType)} className="w-full p-3.5 bg-slate-50 border border-slate-100 rounded-2xl text-sm font-bold outline-none cursor-pointer"><option value="buy_x_get_y">ซื้อ X แถม Y</option><option value="tiered_price">ลดราคาตามจำนวน (7-Steps)</option></select></div></div><div className="space-y-1"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">รหัสสินค้าที่ร่วมรายการ (คั่นด้วยคอมม่า)</label><input name="skus" placeholder="เช่น COFFEE-01, TEA-02" required defaultValue={editingPromotion?.targetSkus.join(', ')} className="w-full p-3.5 bg-slate-50 border border-slate-100 rounded-2xl text-sm font-bold outline-none"/></div>
-              {selectedPromoType === 'buy_x_get_y' ? (<div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-5 bg-sky-50 rounded-3xl border border-sky-100"><div className="space-y-1"><label className="text-[10px] font-bold text-sky-600 uppercase tracking-widest">ซื้อจำนวน</label><input name="requiredQty" type="number" defaultValue={editingPromotion?.requiredQty} className="w-full p-3 bg-white border border-sky-100 rounded-xl text-sm font-bold outline-none"/></div><div className="space-y-1"><label className="text-[10px] font-bold text-sky-600 uppercase tracking-widest">แถมจำนวน</label><input name="freeQty" type="number" defaultValue={editingPromotion?.freeQty} className="w-full p-3 bg-white border border-sky-100 rounded-xl text-sm font-bold outline-none"/></div><div className="space-y-1"><label className="text-[10px] font-bold text-sky-600 uppercase tracking-widest">สินค้าที่แถม (เว้นว่างได้)</label><input name="freeSku" defaultValue={editingPromotion?.freeSku} className="w-full p-3 bg-white border border-sky-100 rounded-xl text-sm font-bold outline-none"/></div></div>) : (
-                <div className="p-5 bg-amber-50 rounded-3xl border border-amber-100 space-y-4"><div className="flex items-center justify-between mb-2"><h4 className="text-xs font-bold text-amber-700 uppercase tracking-widest">ลดราคาตามขั้นบันได (สูงสุด 7 ขั้น)</h4></div><div className="grid grid-cols-8 gap-3 items-center text-[9px] font-bold text-amber-600 uppercase tracking-tighter mb-2"><div className="col-span-1">ขั้น</div><div className="col-span-3">จำนวนขั้นต่ำ</div><div className="col-span-4">ราคาต่อหน่วย (LAK)</div></div>
-                  {[1, 2, 3, 4, 5, 6, 7].map(step => (<div key={step} className="grid grid-cols-8 gap-3 items-center"><div className="col-span-1 text-center font-bold text-amber-700 text-xs">{step}</div><div className="col-span-3"><input name={`tier_qty_${step}`} type="number" placeholder="จำนวน" defaultValue={editingPromotion?.tiers?.[step-1]?.minQty} className="w-full p-2.5 bg-white border border-amber-100 rounded-xl text-xs font-bold outline-none focus:ring-2 focus:ring-amber-500"/></div><div className="col-span-4"><input name={`tier_price_${step}`} type="number" placeholder="ราคา" defaultValue={editingPromotion?.tiers?.[step-1]?.price} className="w-full p-2.5 bg-white border border-amber-100 rounded-xl text-xs font-bold outline-none focus:ring-2 focus:ring-amber-500 text-sky-700"/></div></div>))}
-                </div>
-              )}<div className="flex gap-3 pt-4"><button type="button" onClick={()=>setIsPromotionModalOpen(false)} className="flex-1 py-4 border-2 border-slate-100 rounded-2xl font-bold text-slate-400 text-xs uppercase tracking-widest transition-all hover:bg-slate-50">ยกเลิก</button><button type="submit" className="flex-2 py-4 bg-sky-600 text-white rounded-2xl font-bold shadow-lg px-12 text-xs uppercase tracking-widest transition-all hover:bg-sky-700">บันทึกโปรโมชั่น</button></div></form></div>
+          <div className="bg-white rounded-[2.5rem] w-full max-w-md p-8 shadow-2xl"><h3 className="text-xl font-bold mb-6 text-slate-800">{editingProduct ? 'แก้ไขสินค้า' : 'เพิ่มสินค้าใหม่'}</h3><form onSubmit={handleSaveProduct} className="space-y-5"><div className="grid grid-cols-2 gap-4"><div className="col-span-2 space-y-1"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">ชื่อสินค้า</label><input name="name" required defaultValue={editingProduct?.name} className="w-full p-3.5 bg-slate-50 border border-slate-100 rounded-2xl text-sm font-bold outline-none"/></div><div className="space-y-1"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">รหัส SKU</label><input name="code" required defaultValue={editingProduct?.code} className="w-full p-3.5 bg-slate-50 border border-slate-100 rounded-2xl text-sm font-bold outline-none"/></div><div className="space-y-1"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">หมวดหมู่</label><input name="category" required defaultValue={editingProduct?.category} className="w-full p-3.5 bg-slate-50 border border-slate-100 rounded-2xl text-sm font-bold outline-none"/></div><div className="space-y-1"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">ราคาทุน</label><input name="cost" type="number" required defaultValue={editingProduct?.cost} className="w-full p-3.5 bg-slate-50 border border-slate-100 rounded-2xl text-sm font-bold outline-none"/></div><div className="space-y-1"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">ราคาขาย</label><input name="price" type="number" required defaultValue={editingProduct?.price} className="w-full p-3.5 bg-slate-50 border border-slate-100 rounded-2xl text-sm font-bold outline-none text-sky-600"/></div><div className="col-span-2 space-y-1"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">คงเหลือ</label><input name="stock" type="number" required defaultValue={editingProduct?.stock} className="w-full p-3.5 bg-slate-50 border border-slate-100 rounded-2xl text-sm font-bold outline-none"/></div></div><div className="flex gap-3 pt-4"><button type="button" onClick={()=>setIsProductModalOpen(false)} className="flex-1 py-4 border-2 border-slate-100 rounded-2xl font-bold text-slate-400 text-xs uppercase tracking-widest">ยกเลิก</button><button type="submit" className="flex-2 py-4 bg-sky-600 text-white rounded-2xl font-bold shadow-lg px-10 text-xs uppercase tracking-widest transition-all active:scale-95">บันทึก</button></div></form></div>
         </div>
       )}
 
