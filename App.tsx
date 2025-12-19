@@ -354,7 +354,7 @@ const App: React.FC = () => {
              </div>
           )}
 
-          {/* PROMOTIONS - ENSURING THIS IS NOT BLANK */}
+          {/* PROMOTIONS */}
           {mode === AppMode.PROMOTIONS && (
             <div className="p-8 max-w-7xl mx-auto space-y-8 animate-in fade-in">
               <div className="flex justify-between items-center bg-white p-10 rounded-[3rem] shadow-sm border border-slate-200">
@@ -506,7 +506,7 @@ const App: React.FC = () => {
         </div>
       </main>
 
-      {/* --- MODALS (BILL / PRODUCT / PROMO) --- */}
+      {/* --- MODALS --- */}
 
       {/* BILL MODAL */}
       {isBillModalOpen && (
@@ -590,14 +590,26 @@ const App: React.FC = () => {
         </div>
       )}
 
-      {/* PROMOTION MODAL */}
+      {/* PROMOTION MODAL (FIXED: Added Close Button) */}
       {isPromoModalOpen && (
         <div className="fixed inset-0 bg-slate-950/90 z-[600] flex items-center justify-center p-6 backdrop-blur-3xl animate-in zoom-in-95">
-          <div className="bg-white rounded-[4rem] w-full max-w-2xl p-12 shadow-2xl max-h-[90vh] overflow-y-auto custom-scrollbar">
-            <h3 className="text-3xl font-black mb-10 text-slate-800 uppercase tracking-tighter flex items-center gap-5 border-b pb-10">
-               <div className="p-4 bg-sky-500 text-white rounded-2xl shadow-xl"><Tag size={28} /></div>
-               {t.promo_tier_title}
-            </h3>
+          <div className="bg-white rounded-[3.5rem] w-full max-w-2xl p-10 shadow-2xl max-h-[90vh] overflow-y-auto custom-scrollbar relative">
+            
+            {/* Modal Header with Close Button */}
+            <div className="flex justify-between items-center mb-8 border-b pb-8">
+               <h3 className="text-3xl font-black text-slate-800 uppercase tracking-tighter flex items-center gap-4">
+                  <div className="p-3 bg-sky-500 text-white rounded-2xl shadow-xl"><Tag size={24} /></div>
+                  {t.promo_tier_title}
+               </h3>
+               <button 
+                 type="button" 
+                 onClick={() => setIsPromoModalOpen(false)} 
+                 className="p-3 bg-slate-100 rounded-full hover:bg-rose-500 hover:text-white transition-all shadow-sm"
+               >
+                 <X size={24} />
+               </button>
+            </div>
+
             <form onSubmit={e => {
               e.preventDefault(); const fd = new FormData(e.currentTarget);
               const tiers: PromoTier[] = [];
@@ -614,29 +626,49 @@ const App: React.FC = () => {
               setPromotions(prev => [...prev.filter(x => x.id !== p.id), p]); 
               if (isCloudActive && db) setDoc(doc(db, 'promotions', p.id), p);
               setIsPromoModalOpen(false);
-            }} className="space-y-10">
-              <div className="space-y-4">
-                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-4">Select Product</label>
-                 <select name="productId" required defaultValue={editingPromo?.targetProductId} className="w-full p-6 bg-slate-50 border-2 border-slate-200 rounded-[1.5rem] font-black text-xl outline-none focus:border-sky-500 transition-all">
+            }} className="space-y-8">
+              <div className="space-y-3">
+                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-3">Select Product</label>
+                 <select name="productId" required defaultValue={editingPromo?.targetProductId} className="w-full p-5 bg-slate-50 border-2 border-slate-200 rounded-[1.2rem] font-black text-lg outline-none focus:border-sky-500 transition-all">
                     {products.map(p => <option key={p.id} value={p.id}>{p.name} (SKU: {p.code})</option>)}
                  </select>
               </div>
-              <div className="space-y-4">
-                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-4">Promo Name</label>
-                 <input name="name" required defaultValue={editingPromo?.name} className="w-full p-6 bg-slate-50 border-2 border-slate-200 rounded-[1.5rem] font-black text-xl outline-none focus:border-sky-500 transition-all" />
+              <div className="space-y-3">
+                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-3">Promo Name</label>
+                 <input name="name" required defaultValue={editingPromo?.name} className="w-full p-5 bg-slate-50 border-2 border-slate-200 rounded-[1.2rem] font-black text-lg outline-none focus:border-sky-500 transition-all" placeholder="Enter promotion name..." />
               </div>
-              <div className="space-y-6">
-                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest border-b pb-4 ml-4">Pricing Tiers (Min Qty / Unit Price)</p>
-                <div className="grid grid-cols-1 gap-4">
+              <div className="space-y-5">
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest border-b pb-3 ml-3">Pricing Tiers (Min Qty / Unit Price)</p>
+                <div className="grid grid-cols-1 gap-3">
                   {[1,2,3,4,5,6,7].map(n => (
-                    <div key={n} className="grid grid-cols-2 gap-4 items-center bg-slate-50/50 p-4 rounded-2xl">
-                      <input name={`qty_${n}`} type="number" placeholder="Min Qty" defaultValue={editingPromo?.tiers[n-1]?.minQty} className="w-full p-4 bg-white border border-slate-200 rounded-xl font-black" />
-                      <input name={`price_${n}`} type="number" placeholder="Unit Price" defaultValue={editingPromo?.tiers[n-1]?.unitPrice} className="w-full p-4 bg-sky-50 border border-sky-100 rounded-xl font-black text-sky-600" />
+                    <div key={n} className="grid grid-cols-2 gap-4 items-center bg-slate-50/50 p-4 rounded-[1.2rem]">
+                      <div className="relative">
+                        <input name={`qty_${n}`} type="number" placeholder="Min Qty" defaultValue={editingPromo?.tiers[n-1]?.minQty} className="w-full p-4 bg-white border border-slate-200 rounded-xl font-black text-center" />
+                        <span className="absolute -top-2 left-3 bg-white px-2 text-[8px] font-black text-slate-300 uppercase">Tier {n} Qty</span>
+                      </div>
+                      <div className="relative">
+                        <input name={`price_${n}`} type="number" placeholder="Price" defaultValue={editingPromo?.tiers[n-1]?.unitPrice} className="w-full p-4 bg-sky-50 border border-sky-100 rounded-xl font-black text-sky-600 text-center" />
+                        <span className="absolute -top-2 left-3 bg-sky-50 px-2 text-[8px] font-black text-sky-400 uppercase">Unit Price</span>
+                      </div>
                     </div>
                   ))}
                 </div>
               </div>
-              <button type="submit" className="w-full py-8 bg-sky-600 text-white rounded-[2rem] font-black text-3xl shadow-2xl uppercase tracking-[0.4em] active:scale-95 transition-all">Save Promo</button>
+              <div className="flex gap-4 pt-4">
+                 <button 
+                   type="button" 
+                   onClick={() => setIsPromoModalOpen(false)} 
+                   className="flex-1 py-6 bg-slate-100 text-slate-500 rounded-[1.5rem] font-black uppercase text-xs tracking-[0.3em] hover:bg-slate-200 transition-all"
+                 >
+                   Cancel
+                 </button>
+                 <button 
+                   type="submit" 
+                   className="flex-[2] py-6 bg-sky-600 text-white rounded-[1.5rem] font-black text-2xl shadow-2xl uppercase tracking-[0.3em] hover:bg-sky-700 active:scale-95 transition-all"
+                 >
+                   Save Promo
+                 </button>
+              </div>
             </form>
           </div>
         </div>
@@ -645,9 +677,9 @@ const App: React.FC = () => {
       {/* PRODUCT MODAL */}
       {isProductModalOpen && (
         <div className="fixed inset-0 bg-slate-950/90 z-[600] flex items-center justify-center p-6 backdrop-blur-3xl animate-in zoom-in-95">
-          <div className="bg-white rounded-[4rem] w-full max-w-xl p-12 shadow-2xl animate-in zoom-in-95">
-            <h3 className="text-3xl font-black mb-10 text-slate-800 flex items-center gap-6 border-b pb-10">
-              <div className="p-4 bg-sky-500 text-white rounded-2xl shadow-xl"><Package size={28} /></div> 
+          <div className="bg-white rounded-[3.5rem] w-full max-w-xl p-10 shadow-2xl animate-in zoom-in-95">
+            <h3 className="text-2xl font-black mb-8 text-slate-800 flex items-center gap-5 border-b pb-8">
+              <div className="p-3 bg-sky-500 text-white rounded-2xl shadow-xl"><Package size={24} /></div> 
               {editingProduct ? 'Edit Product' : 'Add Product'}
             </h3>
             <form onSubmit={e => {
@@ -665,17 +697,17 @@ const App: React.FC = () => {
               setProducts(prev => [...prev.filter(x => x.id !== p.id), p]); 
               if (isCloudActive && db) setDoc(doc(db, 'products', p.id), p);
               setIsProductModalOpen(false);
-            }} className="space-y-8">
-              <div className="space-y-2"><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-4">Name</label><input name="name" required defaultValue={editingProduct?.name} className="w-full p-6 bg-slate-50 border-2 border-slate-200 rounded-[1.5rem] font-black text-xl outline-none" /></div>
-              <div className="space-y-2"><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-4">SKU Code</label><input name="code" required defaultValue={editingProduct?.code} className="w-full p-6 bg-slate-50 border-2 border-slate-200 rounded-[1.5rem] font-black text-xl outline-none" /></div>
+            }} className="space-y-6">
+              <div className="space-y-2"><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-4">Name</label><input name="name" required defaultValue={editingProduct?.name} className="w-full p-5 bg-slate-50 border-2 border-slate-200 rounded-[1.2rem] font-black text-lg outline-none" /></div>
+              <div className="space-y-2"><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-4">SKU Code</label><input name="code" required defaultValue={editingProduct?.code} className="w-full p-5 bg-slate-50 border-2 border-slate-200 rounded-[1.2rem] font-black text-lg outline-none" /></div>
               <div className="grid grid-cols-2 gap-6">
-                <div className="space-y-2"><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-4">Cost</label><input name="cost" type="number" required defaultValue={editingProduct?.cost} className="w-full p-6 bg-slate-50 border-2 border-slate-200 rounded-[1.5rem] font-black text-xl outline-none" /></div>
-                <div className="space-y-2"><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-4">Retail</label><input name="price" type="number" required defaultValue={editingProduct?.price} className="w-full p-6 bg-sky-50 border-4 border-sky-100 rounded-[1.5rem] font-black text-sky-600 text-2xl outline-none" /></div>
+                <div className="space-y-2"><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-4">Cost</label><input name="cost" type="number" required defaultValue={editingProduct?.cost} className="w-full p-5 bg-slate-50 border-2 border-slate-200 rounded-[1.2rem] font-black text-lg outline-none" /></div>
+                <div className="space-y-2"><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-4">Retail</label><input name="price" type="number" required defaultValue={editingProduct?.price} className="w-full p-5 bg-sky-50 border-4 border-sky-100 rounded-[1.2rem] font-black text-sky-600 text-2xl outline-none" /></div>
               </div>
-              <div className="space-y-2"><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-4">Initial Stock</label><input name="stock" type="number" required defaultValue={editingProduct?.stock} className="w-full p-6 bg-slate-50 border-2 border-slate-200 rounded-[1.5rem] font-black text-xl outline-none" /></div>
-              <div className="flex gap-6 pt-6">
-                 <button type="button" onClick={()=>setIsProductModalOpen(false)} className="flex-1 py-6 bg-slate-100 text-slate-500 rounded-[1.5rem] font-black uppercase text-xs tracking-[0.3em] active:scale-95 transition-all">Cancel</button>
-                 <button type="submit" className="flex-[2] py-6 bg-sky-600 text-white rounded-[1.5rem] font-black text-2xl shadow-2xl uppercase tracking-[0.3em] active:scale-95 transition-all">Save</button>
+              <div className="space-y-2"><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-4">Initial Stock</label><input name="stock" type="number" required defaultValue={editingProduct?.stock} className="w-full p-5 bg-slate-50 border-2 border-slate-200 rounded-[1.2rem] font-black text-lg outline-none" /></div>
+              <div className="flex gap-6 pt-4">
+                 <button type="button" onClick={()=>setIsProductModalOpen(false)} className="flex-1 py-5 bg-slate-100 text-slate-500 rounded-[1.2rem] font-black uppercase text-xs tracking-[0.3em] active:scale-95 transition-all">Cancel</button>
+                 <button type="submit" className="flex-[2] py-5 bg-sky-600 text-white rounded-[1.2rem] font-black text-xl shadow-2xl uppercase tracking-[0.3em] active:scale-95 transition-all">Save</button>
               </div>
             </form>
           </div>
