@@ -17,13 +17,12 @@ export interface Message {
 
 export enum AppMode {
   DASHBOARD = 'dashboard',
-  POS = 'pos',
   ORDERS = 'orders',
   STOCK = 'stock',
-  AI = 'ai',
-  SETTINGS = 'settings',
   REPORTS = 'reports',
-  PROMOTIONS = 'promotions'
+  PROMOTIONS = 'promotions',
+  AI = 'ai',
+  SETTINGS = 'settings'
 }
 
 export interface Product {
@@ -40,40 +39,26 @@ export interface Product {
 
 export interface CartItem extends Product {
   quantity: number;
-  isFree?: boolean;
-  originalPrice?: number;
-  promotionApplied?: string;
 }
 
 export type LogisticsProvider = 'Anuchit' | 'Meexai' | 'Rungarun' | 'Other' | 'None';
 
-// 7-Step Order Status
-export type OrderStatus = 
-  | 'Pending'    // 1. รอชำระ
-  | 'Paid'       // 2. ชำระแล้ว
-  | 'Packing'    // 3. กำลังแพ็ค
-  | 'Ready'      // 4. พร้อมส่ง
-  | 'Shipped'    // 5. ส่งแล้ว
-  | 'Delivered'  // 6. ถึงผู้รับ
-  | 'Completed'; // 7. สำเร็จ
+export type OrderStatus = 'Pending' | 'Paid' | 'Shipped' | 'Completed';
 
 export interface SaleRecord {
   id: string;
   items: CartItem[];
+  subtotal: number;
+  discount: number;
   total: number;
-  subtotal?: number;
-  discountValue?: number;
-  discountType?: 'amount' | 'percent';
   date: string;
   timestamp: number;
-  paymentMethod: 'cash' | 'qr' | 'transfer';
   status: OrderStatus;
   customerName?: string;
   customerPhone?: string;
   customerAddress?: string;
   shippingCarrier?: LogisticsProvider;
   shippingBranch?: string;
-  trackingNumber?: string;
 }
 
 export interface StoreProfile {
@@ -81,19 +66,17 @@ export interface StoreProfile {
   address: string;
   phone: string;
   logoUrl: string | null;
-  promptPayId?: string;
 }
 
-export type PromotionType = 'tiered_price' | 'buy_x_get_y';
+export interface PromoTier {
+  minQty: number;
+  unitPrice: number;
+}
 
 export interface Promotion {
   id: string;
   name: string;
-  type: PromotionType;
+  targetProductId: string;
   isActive: boolean;
-  targetSkus: string[]; 
-  tiers?: { minQty: number; price: number }[];
-  requiredQty?: number;
-  freeSku?: string;
-  freeQty?: number;
+  tiers: PromoTier[]; // Must have 7 tiers as per requirement
 }
