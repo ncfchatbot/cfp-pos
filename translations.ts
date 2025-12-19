@@ -7,7 +7,7 @@ export const translations: Record<Language, any> = {
     menu_orders: 'ລາຍການຂາຍ/ບິນ',
     menu_stock: 'ສາງສິນຄ້າ (Stock)',
     menu_reports: 'ລາຍງານ (Reports)',
-    menu_promotions: 'ໂປຣໂມຊັ່ນ',
+    menu_promotions: 'ໂປຣໂມຊັ່ນ (Promos)',
     menu_ai: 'ຜູ້ຊ່ວຍ AI',
     menu_settings: 'ຕັ້ງຄ່າຮ້ານ',
     menu_logout: 'ອອກຈາກລະບົບ',
@@ -30,7 +30,7 @@ export const translations: Record<Language, any> = {
     report_profit: 'ກຳໄລຂັ້ນຕົ້ນ',
     report_top_qty: '10 ອັນດັບຂາຍດີ (ຈຳນວນ)',
     report_top_value: '10 ອັນດັບຂາຍດີ (ມູນຄ່າ)',
-    promo_add: 'ເພີ່ມໂປຣໂມຊັ່ນ',
+    promo_add: 'ເພີ່ມໂປຣໂມຊັ່ນໃໝ່',
     promo_tier_title: 'ຕັ້ງຄ່າລາຄາຂາຍສົ່ງ (7 ຂັ້ນ)',
     promo_name: 'ຊື່ໂປຣໂມຊັ່ນ',
     promo_min_qty: 'ຈຳນວນຂັ້ນຕ່ຳ',
@@ -46,14 +46,18 @@ export const translations: Record<Language, any> = {
     cancel: 'ຍົກເລີກ',
     search_sku: 'ຄົ້ນຫາ SKU ຫຼື ຊື່ສິນຄ້າ',
     pay_paid: 'ຈ່າຍແລ້ວ',
-    pay_pending: 'ຄ້າງຈ່າຍ'
+    pay_pending: 'ຄ້າງຈ່າຍ',
+    retail_price: 'ລາຄາຂາຍຍ່ອຍ',
+    cost_price: 'ລາຄາຕົ້ນທຶນ',
+    stock_unit: 'ຫົວໜ່ວຍ',
+    cart_empty: 'ຕະກ້າວ່າງເປົ່າ'
   },
   th: {
     menu_dashboard: 'ภาพรวม (Dashboard)',
     menu_orders: 'รายการขาย/บิล',
     menu_stock: 'คลังสินค้า (Stock)',
     menu_reports: 'รายงาน (Reports)',
-    menu_promotions: 'โปรโมชั่น',
+    menu_promotions: 'โปรโมชั่น (Promos)',
     menu_ai: 'ผู้ช่วย AI',
     menu_settings: 'ตั้งค่าร้านค้า',
     menu_logout: 'ออกจากระบบ',
@@ -76,7 +80,7 @@ export const translations: Record<Language, any> = {
     report_profit: 'กำไรขั้นต้น',
     report_top_qty: '10 อันดับขายดี (จำนวน)',
     report_top_value: '10 อันดับขายดี (มูลค่า)',
-    promo_add: 'เพิ่มโปรโมชั่น',
+    promo_add: 'เพิ่มโปรโมชั่นใหม่',
     promo_tier_title: 'ตั้งค่าโปรโมชั่นขายส่ง (7 ขั้น)',
     promo_name: 'ชื่อโปรโมชั่น',
     promo_min_qty: 'จำนวนขั้นต่ำ',
@@ -92,7 +96,11 @@ export const translations: Record<Language, any> = {
     cancel: 'ยกเลิก',
     search_sku: 'ค้นหารหัสสินค้า (SKU) หรือชื่อ',
     pay_paid: 'ชำระเงินแล้ว',
-    pay_pending: 'ค้างชำระ'
+    pay_pending: 'ค้างชำระ',
+    retail_price: 'ราคาขายปลีก',
+    cost_price: 'ราคาต้นทุน',
+    stock_unit: 'หน่วย',
+    cart_empty: 'ไม่มีสินค้าในตะกร้า'
   },
   en: {
     menu_dashboard: 'Dashboard',
@@ -138,6 +146,10 @@ export const translations: Record<Language, any> = {
     cancel: 'Cancel',
     search_sku: 'Search SKU or Name',
     pay_paid: 'Paid',
-    pay_pending: 'Pending'
+    pay_pending: 'Pending',
+    retail_price: 'Retail Price',
+    cost_price: 'Cost Price',
+    stock_unit: 'Units',
+    cart_empty: 'Cart is empty'
   }
 };
