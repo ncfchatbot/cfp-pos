@@ -38,8 +38,7 @@ const processImage = (file: File, maxWidth = 400): Promise<string> => {
         canvas.height = height;
         const ctx = canvas.getContext('2d');
         ctx?.drawImage(img, 0, 0, width, height);
-        // Using lower quality (0.5) to ensure it fits in LocalStorage even if user uploads many
-        resolve(canvas.toDataURL('image/jpeg', 0.5));
+        resolve(canvas.toDataURL('image/jpeg', 0.6));
       };
       img.onerror = reject;
     };
@@ -68,10 +67,6 @@ const INITIAL_PROFILE: StoreProfile = {
   logoUrl: null
 };
 
-const ORDER_STATUS_STEPS: OrderStatus[] = [
-  'Pending', 'Paid', 'Packing', 'Ready', 'Shipped', 'Delivered', 'Completed'
-];
-
 const COLORS = [
   'bg-sky-100 text-sky-600',
   'bg-amber-100 text-amber-600',
@@ -85,8 +80,14 @@ const App: React.FC = () => {
   const [mode, setMode] = useState<AppMode>(AppMode.DASHBOARD);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [language, setLanguage] = useState<Language>(() => (localStorage.getItem('pos_language') as Language) || 'lo');
-  const [isCloudEnabled] = useState<boolean>(() => !!localStorage.getItem('pos_firebase_config'));
   
+  // Cloud Control State
+  const [isCloudActive, setIsCloudActive] = useState<boolean>(() => {
+    const hasConfig = !!localStorage.getItem('pos_firebase_config') || !!(process.env as any).FIREBASE_CONFIG;
+    const forceLocal = localStorage.getItem('pos_force_local') === 'true';
+    return hasConfig && !forceLocal;
+  });
+
   const [products, setProducts] = useState<Product[]>([]);
   const [recentSales, setRecentSales] = useState<SaleRecord[]>([]);
   const [storeProfile, setStoreProfile] = useState<StoreProfile>(INITIAL_PROFILE);
@@ -102,10 +103,6 @@ const App: React.FC = () => {
 
   // POS State
   const [cart, setCart] = useState<CartItem[]>([]);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState('All');
-  
-  // Modals State
   const [isProductModalOpen, setIsProductModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
@@ -117,66 +114,57 @@ const App: React.FC = () => {
   const productImgInputRef = useRef<HTMLInputElement>(null);
   const csvInputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    localStorage.setItem('pos_language', language);
-    document.body.className = `bg-slate-100 text-slate-900 h-screen overflow-hidden select-none ${language === 'th' ? 'font-thai' : ''}`;
-  }, [language]);
-
   const t = translations[language];
 
+  // Data Loading Lifecycle
   useEffect(() => {
-    if (isCloudEnabled && db) {
-      const unsubProducts = onSnapshot(collection(db, 'products'), (snap) => setProducts(snap.docs.map(d => ({ ...d.data(), id: d.id } as Product))));
-      const salesQuery = query(collection(db, 'sales'), orderBy('timestamp', 'desc'));
-      const unsubSales = onSnapshot(salesQuery, (snap) => setRecentSales(snap.docs.map(d => ({ ...d.data(), id: d.id } as SaleRecord))));
-      const unsubPromotions = onSnapshot(collection(db, 'promotions'), (snap) => setPromotions(snap.docs.map(d => ({ ...d.data(), id: d.id } as Promotion))));
-      const unsubProfile = onSnapshot(doc(db, 'settings', 'profile'), (docSnap) => { if (docSnap.exists()) setStoreProfile(docSnap.data() as StoreProfile); });
-      setIsDataLoaded(true);
-      return () => { unsubProducts(); unsubSales(); unsubPromotions(); unsubProfile(); }
+    let unsubscribes: (() => void)[] = [];
+
+    if (isCloudActive && db) {
+      try {
+        unsubscribes.push(onSnapshot(collection(db, 'products'), (snap) => setProducts(snap.docs.map(d => ({ ...d.data(), id: d.id } as Product)))));
+        unsubscribes.push(onSnapshot(query(collection(db, 'sales'), orderBy('timestamp', 'desc')), (snap) => setRecentSales(snap.docs.map(d => ({ ...d.data(), id: d.id } as SaleRecord)))));
+        unsubscribes.push(onSnapshot(doc(db, 'settings', 'profile'), (docSnap) => { if (docSnap.exists()) setStoreProfile(docSnap.data() as StoreProfile); }));
+        setIsDataLoaded(true);
+      } catch (e) {
+        console.error("Cloud connection failed, falling back to local", e);
+        setIsCloudActive(false);
+      }
     } else {
       setProducts(JSON.parse(localStorage.getItem('pos_products') || '[]'));
       setRecentSales(JSON.parse(localStorage.getItem('pos_sales') || '[]'));
       const savedProfile = localStorage.getItem('pos_profile');
       if (savedProfile) setStoreProfile(JSON.parse(savedProfile));
-      setPromotions(JSON.parse(localStorage.getItem('pos_promotions') || '[]'));
       setIsDataLoaded(true);
     }
-  }, [isCloudEnabled]);
+    return () => unsubscribes.forEach(unsub => unsub());
+  }, [isCloudActive]);
 
+  // Persist Local Changes
   useEffect(() => {
-    if (!isCloudEnabled && isDataLoaded) {
+    if (!isCloudActive && isDataLoaded) {
       localStorage.setItem('pos_products', JSON.stringify(products));
       localStorage.setItem('pos_sales', JSON.stringify(recentSales));
       localStorage.setItem('pos_profile', JSON.stringify(storeProfile));
-      localStorage.setItem('pos_promotions', JSON.stringify(promotions));
     }
-  }, [products, recentSales, storeProfile, promotions, isDataLoaded, isCloudEnabled]);
+  }, [products, recentSales, storeProfile, isDataLoaded, isCloudActive]);
 
   const saveProductData = async (product: Product) => {
-    if (isCloudEnabled && db) {
-      await setDoc(doc(db, 'products', product.id), product);
-    } else {
-      setProducts(prev => {
-        const exists = prev.find(p => p.id === product.id);
-        return exists ? prev.map(p => p.id === product.id ? product : p) : [...prev, product];
-      });
+    if (isCloudActive && db) {
+      try {
+        await setDoc(doc(db, 'products', product.id), product);
+      } catch (err: any) {
+        if (err.code === 'permission-denied') {
+          alert("สิทธิ์ Cloud ถูกปฏิเสธ: ระบบจะบันทึกไว้ในเครื่องนี้แทนโดยอัตโนมัติ");
+          setIsCloudActive(false);
+          localStorage.setItem('pos_force_local', 'true');
+        }
+      }
     }
-  };
-
-  const downloadCSVTemplate = () => {
-    // Generate a very standard CSV template
-    const headers = ["Name", "SKU", "Category", "Cost", "Price", "Stock"];
-    const rows = [
-      ["Americano", "COF-001", "Coffee", "5000", "15000", "100"],
-      ["Latte", "COF-002", "Coffee", "7000", "20000", "100"]
-    ];
-    const csvContent = "\ufeff" + headers.join(",") + "\n" + rows.map(r => r.join(",")).join("\n");
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = "coffee_pos_template.csv";
-    link.click();
+    setProducts(prev => {
+      const exists = prev.find(p => p.id === product.id);
+      return exists ? prev.map(p => p.id === product.id ? product : p) : [...prev, product];
+    });
   };
 
   const handleImportCSV = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -188,92 +176,69 @@ const App: React.FC = () => {
     reader.onload = async (event) => {
       try {
         let text = event.target?.result as string;
-        text = text.replace(/^\ufeff/i, "").trim(); // Remove BOM
-        if (!text) throw new Error("File is empty");
-
+        text = text.replace(/^\ufeff/i, "").trim(); 
         const lines = text.split(/\r?\n/).map(l => l.trim()).filter(l => l !== "");
-        if (lines.length < 1) throw new Error("No data found");
+        if (lines.length < 1) throw new Error("ไม่พบข้อมูลในไฟล์");
 
-        // Strategy: Detect delimiter by counting occurrences in the first line
-        const firstLine = lines[0];
-        const delimiters = [",", ";", "\t", "|"];
-        const counts = delimiters.map(d => (firstLine.match(new RegExp(`\\${d}`, 'g')) || []).length);
-        const maxIdx = counts.indexOf(Math.max(...counts));
-        const delimiter = delimiters[maxIdx];
+        const delimiters = [",", ";", "\t"];
+        const delimiter = delimiters.reduce((prev, curr) => (lines[0].split(curr).length > lines[0].split(prev).length ? curr : prev));
 
-        // Advanced CSV Row Parser (handles quotes correctly)
-        const parseCSVRow = (rowText: string, d: string) => {
-          const cells = [];
-          let current = "";
-          let inQuotes = false;
-          for (let i = 0; i < rowText.length; i++) {
-            const char = rowText[i];
-            if (char === '"' && rowText[i+1] === '"') { current += '"'; i++; }
-            else if (char === '"') inQuotes = !inQuotes;
-            else if (char === d && !inQuotes) { cells.push(current.trim().replace(/^"|"$/g, "")); current = ""; }
-            else current += char;
+        const parseCSVRow = (row: string, d: string) => {
+          const cells = []; let cur = ""; let q = false;
+          for (let i = 0; i < row.length; i++) {
+            const c = row[i];
+            if (c === '"' && row[i+1] === '"') { cur += '"'; i++; }
+            else if (c === '"') q = !q;
+            else if (c === d && !q) { cells.push(cur.trim().replace(/^"|"$/g, "")); cur = ""; }
+            else cur += c;
           }
-          cells.push(current.trim().replace(/^"|"$/g, ""));
+          cells.push(cur.trim().replace(/^"|"$/g, ""));
           return cells;
         };
 
-        // Smart Header Scanning (Scan first 10 rows to find headers)
-        let headerRowIdx = -1;
-        let mapping = { name: -1, code: -1, category: -1, cost: -1, price: -1, stock: -1 };
-        
-        const nameKeywords = ['ชื่อ', 'ชื່', 'name', 'product', 'สินค้า', 'ລາຍການ'];
-        const codeKeywords = ['รหัส', 'sku', 'code', 'ລະຫັດ', 'id'];
-        const priceKeywords = ['ราคา', 'ขาย', 'price', 'ລາຄາ', 'ຂາຍ'];
-        const stockKeywords = ['คงเหลือ', 'สต็อก', 'stock', 'ຈຳນວນ', 'ສະຕັອກ'];
+        const nameKeywords = ['ชื่อ', 'ชื่', 'name', 'product', 'สินค้า', 'ລາຍການ'];
+        let headerIdx = -1; let map = { name: -1, code: -1, price: -1, stock: -1 };
 
-        for (let i = 0; i < Math.min(lines.length, 10); i++) {
+        for (let i = 0; i < Math.min(lines.length, 5); i++) {
           const cells = parseCSVRow(lines[i], delimiter);
-          const hasName = cells.some(c => nameKeywords.some(k => c.toLowerCase().includes(k.toLowerCase())));
-          if (hasName) {
-            headerRowIdx = i;
-            mapping.name = cells.findIndex(c => nameKeywords.some(k => c.toLowerCase().includes(k.toLowerCase())));
-            mapping.code = cells.findIndex(c => codeKeywords.some(k => c.toLowerCase().includes(k.toLowerCase())));
-            mapping.category = cells.findIndex(c => c.toLowerCase().includes('หมวด') || c.toLowerCase().includes('category') || c.toLowerCase().includes('ໝວດ'));
-            mapping.cost = cells.findIndex(c => c.toLowerCase().includes('ต้นทุน') || c.toLowerCase().includes('cost') || c.toLowerCase().includes('ທຶນ'));
-            mapping.price = cells.findIndex(c => priceKeywords.some(k => c.toLowerCase().includes(k.toLowerCase())));
-            mapping.stock = cells.findIndex(c => stockKeywords.some(k => c.toLowerCase().includes(k.toLowerCase())));
+          const found = cells.findIndex(c => nameKeywords.some(k => c.toLowerCase().includes(k.toLowerCase())));
+          if (found !== -1) {
+            headerIdx = i;
+            map.name = found;
+            map.code = cells.findIndex(c => ['รหัส', 'sku', 'code', 'id'].some(k => c.toLowerCase().includes(k)));
+            map.price = cells.findIndex(c => ['ราคา', 'price', 'ລາຄາ'].some(k => c.toLowerCase().includes(k)));
+            map.stock = cells.findIndex(c => ['สต็อก', 'stock', 'ຈຳນວນ'].some(k => c.toLowerCase().includes(k)));
             break;
           }
         }
 
-        if (headerRowIdx === -1 || mapping.name === -1) {
-          throw new Error("ไม่พบหัวตารางที่ระบุชื่อสินค้า กรุณาตรวจสอบไฟล์อีกครั้ง");
-        }
+        if (headerIdx === -1) throw new Error("ไม่พบหัวตาราง 'ชื่อสินค้า'");
 
-        const importedProducts: Product[] = [];
-        for (let i = headerRowIdx + 1; i < lines.length; i++) {
+        const newItems: Product[] = [];
+        for (let i = headerIdx + 1; i < lines.length; i++) {
           const cells = parseCSVRow(lines[i], delimiter);
-          if (!cells[mapping.name]) continue;
-
-          const cleanValue = (v: string) => v ? v.replace(/,/g, '').replace(/[^\d.-]/g, '') : "0";
+          if (!cells[map.name]) continue;
           const p: Product = {
             id: uuidv4(),
-            name: cells[mapping.name],
-            code: mapping.code !== -1 && cells[mapping.code] ? cells[mapping.code] : `SKU-${Math.random().toString(36).substr(2, 5).toUpperCase()}`,
-            category: mapping.category !== -1 && cells[mapping.category] ? cells[mapping.category] : "General",
-            cost: mapping.cost !== -1 ? parseFloat(cleanValue(cells[mapping.cost])) || 0 : 0,
-            price: mapping.price !== -1 ? parseFloat(cleanValue(cells[mapping.price])) || 0 : 0,
-            stock: mapping.stock !== -1 ? parseInt(cleanValue(cells[mapping.stock])) || 0 : 0,
+            name: cells[map.name],
+            code: map.code !== -1 && cells[map.code] ? cells[map.code] : `SKU-${Math.random().toString(36).substr(2, 4).toUpperCase()}`,
+            category: "General",
+            cost: 0,
+            price: map.price !== -1 ? parseFloat(cells[map.price].replace(/[^\d.-]/g, '')) || 0 : 0,
+            stock: map.stock !== -1 ? parseInt(cells[map.stock].replace(/[^\d.-]/g, '')) || 0 : 0,
             color: COLORS[Math.floor(Math.random() * COLORS.length)],
           };
           
-          if (isCloudEnabled && db) {
-            await setDoc(doc(db, 'products', p.id), p);
+          if (isCloudActive && db) {
+            try { await setDoc(doc(db, 'products', p.id), p); } catch (e) { console.error("Cloud save failed", e); }
           }
-          importedProducts.push(p);
+          newItems.push(p);
         }
 
-        if (!isCloudEnabled) {
-          setProducts(prev => [...prev, ...importedProducts]);
-        }
-        alert(`นำเข้าเรียบร้อยแล้วจำนวน ${importedProducts.length} รายการ`);
+        setProducts(prev => [...prev, ...newItems]);
+        alert(`นำเข้าสำเร็จ ${newItems.length} รายการ`);
       } catch (err: any) {
-        alert("การนำเข้าขัดข้อง: " + err.message);
+        alert("ขัดข้อง: " + err.message);
       } finally {
         setIsProcessingCSV(false);
         if (csvInputRef.current) csvInputRef.current.value = "";
@@ -285,122 +250,85 @@ const App: React.FC = () => {
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>, type: 'logo' | 'product') => {
     const file = e.target.files?.[0];
     if (!file) return;
-    
     setIsUploading(true);
     try {
       const base64 = await processImage(file);
       if (type === 'logo') {
-        const newProfile = { ...storeProfile, logoUrl: base64 };
-        setStoreProfile(newProfile);
-        if (isCloudEnabled && db) {
-          await setDoc(doc(db, 'settings', 'profile'), newProfile);
-        } else {
-          try {
-            localStorage.setItem('pos_profile', JSON.stringify(newProfile));
-          } catch (storageErr) {
-            alert("ไม่สามารถบันทึกโลโก้ได้เนื่องจากพื้นที่ใน Browser เต็ม โปรดลบข้อมูลบางส่วนออก");
-          }
-        }
+        const prof = { ...storeProfile, logoUrl: base64 };
+        setStoreProfile(prof);
+        if (isCloudActive && db) try { await setDoc(doc(db, 'settings', 'profile'), prof); } catch(e){}
       } else if (type === 'product' && editingProduct) {
         setEditingProduct({ ...editingProduct, imageUrl: base64 });
       }
-    } catch (err) {
-      alert("เกิดความผิดพลาดในการจัดการรูปภาพ");
-    } finally {
-      setIsUploading(false);
-    }
+    } catch (err) { alert("จัดการรูปภาพไม่สำเร็จ"); }
+    finally { setIsUploading(false); }
   };
 
-  const handleSendMessage = async () => {
-    if (!chatInput.trim() || isChatLoading) return;
-    const userMsg: Message = { id: uuidv4(), role: Role.USER, text: chatInput, timestamp: Date.now() };
-    setMessages(prev => [...prev, userMsg]);
-    setChatInput('');
-    setIsChatLoading(true);
-
-    try {
-      const history = messages.map(m => ({
-        role: m.role === Role.USER ? 'user' : 'model',
-        parts: [{ text: m.text }]
-      }));
-      const stream = await streamResponse(userMsg.text, mode, history);
-      if (stream) {
-        const assistantId = uuidv4();
-        let fullText = "";
-        setMessages(prev => [...prev, { id: assistantId, role: Role.MODEL, text: "", timestamp: Date.now() }]);
-        for await (const chunk of stream) {
-          const c = chunk as GenerateContentResponse;
-          fullText += c.text || "";
-          setMessages(prev => prev.map(m => m.id === assistantId ? { ...m, text: fullText } : m));
-        }
-      }
-    } catch (error) {
-      setMessages(prev => [...prev, { id: uuidv4(), role: Role.MODEL, text: "ขออภัย ระบบขัดข้องชั่วคราว", timestamp: Date.now(), isError: true }]);
-    } finally {
-      setIsChatLoading(false);
-    }
-  };
-
-  // Rendering Helper Components
   const renderDashboard = () => (
     <div className="p-4 md:p-8 h-full overflow-y-auto bg-slate-50/50">
-      <h2 className="text-2xl font-bold mb-8 flex items-center gap-3 text-slate-800"><LayoutDashboard className="text-sky-600" /> {t.dash_title}</h2>
+      <div className="flex justify-between items-center mb-8">
+        <h2 className="text-2xl font-bold flex items-center gap-3 text-slate-800"><LayoutDashboard className="text-sky-600" /> {t.dash_title}</h2>
+        <div className={`px-4 py-1.5 rounded-full text-[10px] font-bold flex items-center gap-2 border ${isCloudActive ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-slate-100 text-slate-400 border-slate-200'}`}>
+          <div className={`w-2 h-2 rounded-full ${isCloudActive ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'}`} />
+          {isCloudActive ? 'Cloud Online' : 'Local Mode'}
+        </div>
+      </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
         <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-100"><p className="text-slate-500 text-[10px] font-bold uppercase mb-2">{t.dash_sales_month}</p><h3 className="text-2xl font-bold text-sky-600">{formatCurrency(recentSales.reduce((s, o) => s + o.total, 0), language)}</h3></div>
         <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-100"><p className="text-slate-500 text-[10px] font-bold uppercase mb-2">{t.dash_stock_value}</p><h3 className="text-2xl font-bold text-amber-600">{formatCurrency(products.reduce((s, p) => s + (p.cost * p.stock), 0), language)}</h3></div>
-        <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-100"><p className="text-slate-500 text-[10px] font-bold uppercase mb-2">คำสั่งซื้อ</p><h3 className="text-2xl font-bold text-emerald-600">{recentSales.length} รายการ</h3></div>
+        <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-100"><p className="text-slate-500 text-[10px] font-bold uppercase mb-2">ออเดอร์</p><h3 className="text-2xl font-bold text-emerald-600">{recentSales.length}</h3></div>
         <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-100"><p className="text-slate-500 text-[10px] font-bold uppercase mb-2">ของใกล้หมด</p><h3 className="text-2xl font-bold text-rose-500">{products.filter(checkIsLowStock).length}</h3></div>
-      </div>
-      <div className="bg-white p-8 rounded-[3rem] border shadow-sm"><h3 className="font-bold mb-6 flex items-center gap-2"><History size={20} className="text-sky-500" /> ล่าสุด</h3><div className="space-y-4">{recentSales.slice(0, 5).map(s => (<div key={s.id} className="flex justify-between items-center p-4 bg-slate-50 rounded-2xl"><div><p className="font-bold text-sm">Order #{s.id.slice(-4)}</p><p className="text-[10px] text-slate-400">{s.date}</p></div><div className="text-right"><p className="font-bold text-sky-600">{formatCurrency(s.total, language)}</p><span className="text-[9px] bg-sky-100 text-sky-700 px-2 py-0.5 rounded-full font-bold uppercase">{s.status}</span></div></div>))}</div></div>
-    </div>
-  );
-
-  const renderStock = () => (
-    <div className="p-4 md:p-8 h-full overflow-y-auto">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-10">
-        <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-3"><Package className="text-sky-600" /> {t.stock_title}</h2>
-        <div className="flex gap-2">
-          <button onClick={() => { setEditingProduct(null); setIsProductModalOpen(true); }} className="bg-sky-600 text-white px-6 py-3 rounded-2xl text-sm font-bold shadow-lg flex items-center gap-2 active:scale-95 transition-all"><Plus size={18}/> {t.stock_add}</button>
-        </div>
-      </div>
-      <div className="bg-white rounded-[2.5rem] border shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left"><thead className="bg-slate-50 text-slate-400 text-[10px] uppercase font-bold tracking-widest border-b"><tr><th className="px-6 py-5">Product</th><th className="px-6 py-5">SKU</th><th className="px-6 py-5 text-right">Price</th><th className="px-6 py-5 text-center">Stock</th><th className="px-6 py-5 text-center">Action</th></tr></thead><tbody className="divide-y divide-slate-50">{products.map(p => (<tr key={p.id} className="hover:bg-slate-50/50 transition-colors"><td className="px-6 py-5 font-bold text-slate-700">{p.name}</td><td className="px-6 py-5 font-mono text-[10px] text-slate-400">{p.code}</td><td className="px-6 py-5 text-right font-bold text-sky-600">{formatCurrency(p.price, language)}</td><td className="px-6 py-5 text-center"><span className={`px-3 py-1 rounded-full text-[10px] font-bold ${checkIsLowStock(p) ? 'bg-rose-100 text-rose-600' : 'bg-slate-100 text-slate-500'}`}>{p.stock}</span></td><td className="px-6 py-5 flex justify-center gap-2"><button onClick={() => { setEditingProduct(p); setIsProductModalOpen(true); }} className="p-2 text-slate-300 hover:text-sky-600"><Edit size={16}/></button><button onClick={() => { if(confirm('ต้องการลบสินค้า?')) setProducts(prev => prev.filter(it => it.id !== p.id)); }} className="p-2 text-slate-300 hover:text-rose-500"><Trash2 size={16}/></button></td></tr>))}</tbody></table>
-        </div>
-        {products.length === 0 && <div className="p-20 text-center text-slate-300 italic">ไม่มีข้อมูลสินค้า</div>}
       </div>
     </div>
   );
 
   const renderSettings = () => (
-    <div className="p-4 md:p-8 h-full overflow-y-auto bg-slate-50/50">
+    <div className="p-4 md:p-8 h-full overflow-y-auto">
       <h2 className="text-2xl font-bold mb-10 flex items-center gap-3 text-slate-800"><Settings className="text-sky-600" /> {t.setting_title}</h2>
       <div className="max-w-4xl space-y-10 pb-20">
         <div className="bg-white p-10 rounded-[3rem] shadow-sm border">
-          <h3 className="text-[10px] font-bold uppercase tracking-[0.3em] text-slate-400 mb-8">ข้อมูลร้านค้า</h3>
+          <div className="flex justify-between items-center mb-8">
+            <h3 className="text-[10px] font-bold uppercase tracking-[0.3em] text-slate-400">การเชื่อมต่อ</h3>
+            <button 
+              onClick={() => {
+                const newVal = !isCloudActive;
+                setIsCloudActive(newVal);
+                localStorage.setItem('pos_force_local', newVal ? 'false' : 'true');
+                window.location.reload();
+              }}
+              className={`px-6 py-2 rounded-2xl text-[10px] font-bold transition-all ${isCloudActive ? 'bg-sky-600 text-white shadow-lg' : 'bg-slate-100 text-slate-400'}`}
+            >
+              {isCloudActive ? 'เชื่อมต่อ Cloud อยู่' : 'ใช้ระบบ Local (ออฟไลน์)'}
+            </button>
+          </div>
+          {isCloudActive && <div className="p-4 bg-emerald-50 text-emerald-700 text-xs rounded-2xl flex items-center gap-2 mb-8"><Check size={16}/> เชื่อมต่อ Firebase สำเร็จ ข้อมูลจะซิงค์อัตโนมัติ</div>}
           <div className="flex flex-col md:flex-row gap-12">
             <div className="flex flex-col items-center gap-4">
               <div onClick={() => logoInputRef.current?.click()} className="w-48 h-48 rounded-[3rem] bg-slate-50 border-2 border-dashed border-slate-200 flex flex-col items-center justify-center cursor-pointer overflow-hidden group hover:border-sky-500 transition-all relative">
-                {storeProfile.logoUrl ? <img src={storeProfile.logoUrl} className="w-full h-full object-cover" /> : <div className="text-slate-300 flex flex-col items-center gap-2"><ImagePlus size={40}/><span className="text-[10px] font-bold">อัปโหลดโลโก้</span></div>}
+                {storeProfile.logoUrl ? <img src={storeProfile.logoUrl} className="w-full h-full object-cover" /> : <div className="text-slate-300 flex flex-col items-center gap-2"><ImagePlus size={40}/><span className="text-[10px] font-bold">โลโก้ร้าน</span></div>}
                 {isUploading && <div className="absolute inset-0 bg-white/70 flex items-center justify-center"><Loader2 className="animate-spin text-sky-600" /></div>}
               </div>
               <input type="file" ref={logoInputRef} className="hidden" accept="image/*" onChange={(e) => handleImageUpload(e, 'logo')} />
             </div>
             <div className="flex-1 space-y-6">
-              <div><label className="text-[10px] font-bold text-slate-400 uppercase ml-1">ชื่อร้าน</label><input value={storeProfile.name} onChange={e => setStoreProfile({...storeProfile, name: e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold outline-none focus:ring-2 focus:ring-sky-500"/></div>
-              <div><label className="text-[10px] font-bold text-slate-400 uppercase ml-1">ที่อยู่</label><textarea value={storeProfile.address} onChange={e => setStoreProfile({...storeProfile, address: e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold outline-none h-24 focus:ring-2 focus:ring-sky-500 resize-none"/></div>
-              <button onClick={() => alert('บันทึกเรียบร้อย')} className="bg-sky-600 text-white px-10 py-4 rounded-2xl font-bold shadow-xl active:scale-95 transition-all">บันทึกข้อมูล</button>
+              <input value={storeProfile.name} onChange={e => setStoreProfile({...storeProfile, name: e.target.value})} placeholder="ชื่อร้านค้า" className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none focus:ring-2 focus:ring-sky-500"/>
+              <textarea value={storeProfile.address} onChange={e => setStoreProfile({...storeProfile, address: e.target.value})} placeholder="ที่อยู่" className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none h-24 focus:ring-2 focus:ring-sky-500 resize-none"/>
+              <button onClick={() => alert('บันทึกเรียบร้อย')} className="bg-sky-600 text-white px-10 py-4 rounded-2xl font-bold shadow-xl active:scale-95 transition-all">บันทึกข้อมูลร้าน</button>
             </div>
           </div>
         </div>
         <div className="bg-white p-10 rounded-[3rem] border shadow-sm">
-          <h3 className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-8">จัดการฐานข้อมูลสินค้า</h3>
+          <h3 className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-8">จัดการฐานข้อมูล</h3>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
-            <button onClick={() => csvInputRef.current?.click()} disabled={isProcessingCSV} className="p-8 bg-emerald-50 text-emerald-600 rounded-[2rem] border border-emerald-100 flex flex-col items-center gap-4 hover:bg-emerald-100 transition-all active:scale-95 disabled:opacity-50">
+            <button onClick={() => csvInputRef.current?.click()} disabled={isProcessingCSV} className="p-8 bg-emerald-50 text-emerald-600 rounded-[2rem] border border-emerald-100 flex flex-col items-center gap-4 hover:bg-emerald-100 transition-all active:scale-95">
               {isProcessingCSV ? <Loader2 className="animate-spin" size={32}/> : <UploadCloud size={32}/>}
               <span className="text-[10px] font-bold uppercase">นำเข้า (CSV)</span>
             </button>
-            <button onClick={downloadCSVTemplate} className="p-8 bg-sky-50 text-sky-600 rounded-[2rem] border border-sky-100 flex flex-col items-center gap-4 hover:bg-sky-100 transition-all active:scale-95">
+            <button onClick={() => { 
+                const link = document.createElement("a");
+                link.href = "data:text/csv;charset=utf-8,\ufeffName,Price,Stock\nAmericano,15000,100\nLatte,20000,50";
+                link.download = "template.csv"; link.click();
+              }} className="p-8 bg-sky-50 text-sky-600 rounded-[2rem] border border-sky-100 flex flex-col items-center gap-4 hover:bg-sky-100 transition-all active:scale-95">
               <DownloadIcon size={32}/><span className="text-[10px] font-bold uppercase">โหลด TEMPLATE</span>
             </button>
             <button onClick={() => { if(confirm('ยืนยันการล้างข้อมูล?')) { localStorage.clear(); window.location.reload(); } }} className="p-8 bg-rose-50 text-rose-600 rounded-[2rem] border border-rose-100 flex flex-col items-center gap-4 hover:bg-rose-100 transition-all active:scale-95">
@@ -419,12 +347,20 @@ const App: React.FC = () => {
       
       <main className="flex-1 flex flex-col h-full relative overflow-hidden">
         <header className="h-16 flex items-center justify-between px-6 bg-white border-b md:hidden"><button onClick={() => setIsSidebarOpen(true)} className="p-2"><Menu /></button><span className="font-bold text-sky-600">Coffee Please</span><div className="w-8"/></header>
-        
         <div className="flex-1 relative overflow-hidden">
           <div className="absolute inset-0">
             {mode === AppMode.DASHBOARD && renderDashboard()}
-            {mode === AppMode.STOCK && renderStock()}
-            {mode === AppMode.SETTINGS && renderSettings()}
+            {mode === AppMode.STOCK && (
+              <div className="p-4 md:p-8 h-full overflow-y-auto">
+                <div className="flex justify-between items-center mb-8">
+                  <h2 className="text-2xl font-bold flex items-center gap-3 text-slate-800"><Package className="text-sky-600" /> {t.stock_title}</h2>
+                  <button onClick={() => { setEditingProduct(null); setIsProductModalOpen(true); }} className="bg-sky-600 text-white px-6 py-3 rounded-2xl text-sm font-bold shadow-lg flex items-center gap-2"><Plus size={18}/> {t.stock_add}</button>
+                </div>
+                <div className="bg-white rounded-[2.5rem] border shadow-sm overflow-hidden">
+                  <table className="w-full text-left"><thead className="bg-slate-50 text-slate-400 text-[10px] uppercase font-bold tracking-widest border-b"><tr><th className="px-6 py-5">Product</th><th className="px-6 py-5 text-right">Price</th><th className="px-6 py-5 text-center">Stock</th><th className="px-6 py-5 text-center">Action</th></tr></thead><tbody className="divide-y divide-slate-50">{products.map(p => (<tr key={p.id} className="hover:bg-slate-50/50"><td className="px-6 py-5 font-bold">{p.name}</td><td className="px-6 py-5 text-right font-bold text-sky-600">{formatCurrency(p.price, language)}</td><td className="px-6 py-5 text-center"><span className={`px-3 py-1 rounded-full text-[10px] font-bold ${checkIsLowStock(p) ? 'bg-rose-100 text-rose-600' : 'bg-slate-100 text-slate-500'}`}>{p.stock}</span></td><td className="px-6 py-5 text-center flex justify-center gap-2"><button onClick={()=>{setEditingProduct(p); setIsProductModalOpen(true);}} className="p-2 text-slate-300 hover:text-sky-600"><Edit size={16}/></button><button onClick={()=>{if(confirm('ลบ?')) setProducts(prev=>prev.filter(i=>i.id!==p.id));}} className="p-2 text-slate-300 hover:text-rose-500"><Trash2 size={16}/></button></td></tr>))}</tbody></table>
+                </div>
+              </div>
+            )}
             {mode === AppMode.POS && (
               <div className="flex h-full flex-col md:flex-row overflow-hidden bg-slate-50/50">
                 <div className="flex-1 p-4 md:p-6 overflow-y-auto">
@@ -444,16 +380,8 @@ const App: React.FC = () => {
                    </div>
                 </div>
                 <div className="w-full md:w-96 bg-white border-l shadow-2xl flex flex-col">
-                   <div className="p-6 border-b flex justify-between items-center font-bold"><h2>ตะกร้า</h2><button onClick={()=>setCart([])} className="text-xs text-rose-500 uppercase tracking-widest">ล้าง</button></div>
-                   <div className="flex-1 overflow-y-auto p-4 space-y-3">
-                     {cart.map((item, idx) => (
-                       <div key={idx} className="flex items-center gap-3 p-3 bg-slate-50 rounded-2xl border">
-                         <div className="flex-1 min-w-0"><h4 className="font-bold text-xs truncate">{item.name}</h4><p className="text-[10px] text-sky-600 font-bold">{formatCurrency(item.price, language)}</p></div>
-                         <div className="flex items-center gap-3 bg-white px-2 py-1 rounded-xl border"><button onClick={()=>setCart(prev=>prev.map((i,ix)=>ix===idx?{...i,quantity:Math.max(1,i.quantity-1)}:i))} className="p-1"><Minus size={12}/></button><span className="text-xs font-bold">{item.quantity}</span><button onClick={()=>setCart(prev=>prev.map((i,ix)=>ix===idx?{...i,quantity:i.quantity+1}:i))} className="p-1"><Plus size={12}/></button></div>
-                         <button onClick={()=>setCart(prev=>prev.filter((_,i)=>i!==idx))} className="text-slate-300 hover:text-rose-500"><Trash2 size={16}/></button>
-                       </div>
-                     ))}
-                   </div>
+                   <div className="p-6 border-b flex justify-between items-center font-bold"><h2>ตะกร้า</h2><button onClick={()=>setCart([])} className="text-xs text-rose-500 uppercase">ล้าง</button></div>
+                   <div className="flex-1 overflow-y-auto p-4 space-y-3">{cart.map((item, idx) => (<div key={idx} className="flex items-center gap-3 p-3 bg-slate-50 rounded-2xl border"><div className="flex-1 min-w-0 font-bold text-xs truncate">{item.name}</div><div className="flex items-center gap-3 bg-white px-2 py-1 rounded-xl border"><button onClick={()=>setCart(prev=>prev.map((i,ix)=>ix===idx?{...i,quantity:Math.max(1,i.quantity-1)}:i))}><Minus size={12}/></button><span className="text-xs font-bold">{item.quantity}</span><button onClick={()=>setCart(prev=>prev.map((i,ix)=>ix===idx?{...i,quantity:i.quantity+1}:i))}><Plus size={12}/></button></div><button onClick={()=>setCart(prev=>prev.filter((_,i)=>i!==idx))} className="text-slate-300 hover:text-rose-500"><Trash2 size={16}/></button></div>))}</div>
                    <div className="p-8 border-t space-y-4">
                       <div className="flex justify-between items-center font-bold text-slate-500"><span>ยอดรวม</span><span className="text-3xl text-sky-600">{formatCurrency(cart.reduce((s,i)=>s+(i.price*i.quantity),0), language)}</span></div>
                       <button onClick={()=>setIsPaymentModalOpen(true)} disabled={cart.length === 0} className="w-full bg-sky-600 text-white py-5 rounded-[2rem] font-bold shadow-xl active:scale-95 disabled:opacity-30">ชำระเงิน</button>
@@ -461,88 +389,58 @@ const App: React.FC = () => {
                 </div>
               </div>
             )}
-            {mode === AppMode.AI && (
-              <div className="flex flex-col h-full bg-white">
-                <div className="flex-1 overflow-y-auto p-4 md:p-10 space-y-6">
-                   {messages.map(m => <ChatMessage key={m.id} message={m} />)}
-                   {isChatLoading && <div className="text-xs text-sky-600 animate-pulse font-bold px-6">ผู้ช่วย AI กำลังคิด...</div>}
-                   <div ref={chatEndRef} />
-                </div>
-                <div className="p-6 border-t bg-slate-50"><div className="max-w-4xl mx-auto flex gap-3"><input value={chatInput} onChange={e=>setChatInput(e.target.value)} onKeyDown={e=>e.key==='Enter'&&handleSendMessage()} placeholder="ถามเกี่ยวกับธุรกิจของคุณ..." className="flex-1 p-4 bg-white border rounded-2xl outline-none focus:ring-2 focus:ring-sky-500" /><button onClick={handleSendMessage} className="bg-sky-600 text-white p-4 rounded-2xl shadow-lg active:scale-95"><Send size={24}/></button></div></div>
-              </div>
-            )}
+            {mode === AppMode.SETTINGS && renderSettings()}
           </div>
         </div>
       </main>
 
-      {/* MODALS */}
+      {/* MODALS (Simplified for clarity) */}
       {isPaymentModalOpen && (
         <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-4 backdrop-blur-md">
           <div className="bg-white rounded-[4rem] w-full max-w-sm p-12 text-center shadow-2xl">
              <div className="w-20 h-20 bg-sky-50 text-sky-600 rounded-[2rem] flex items-center justify-center mx-auto mb-8"><DollarSign size={40}/></div>
-             <p className="text-slate-400 mb-2 font-bold text-[10px] uppercase tracking-widest">ยอดชำระสุทธิ</p>
              <h3 className="text-5xl font-bold mb-12 text-slate-800 tracking-tighter">{formatCurrency(cart.reduce((s,i)=>s+(i.price*i.quantity),0), language)}</h3>
-             <div className="grid grid-cols-3 gap-4 mb-12">
-                {['cash', 'qr', 'transfer'].map((m: any) => (
-                  <button key={m} onClick={()=>setPaymentMethod(m)} className={`p-4 border-2 rounded-3xl flex flex-col items-center gap-2 transition-all ${paymentMethod===m?'border-sky-500 bg-sky-50 text-sky-600':'border-slate-100 text-slate-300'}`}>
-                    <span className="text-[10px] font-bold uppercase">{m}</span>
-                  </button>
-                ))}
-             </div>
              <button onClick={() => {
-                const orderId = uuidv4();
                 const total = cart.reduce((s,i)=>s+(i.price*i.quantity),0);
-                const order = { id: orderId, items: [...cart], total, subtotal: total, date: new Date().toLocaleString(), timestamp: Date.now(), paymentMethod, status: 'Paid' as OrderStatus, customerName: 'ลูกค้าทั่วไป' };
-                if (isCloudEnabled && db) setDoc(doc(db, 'sales', orderId), order);
-                else setRecentSales(prev => [order, ...prev]);
-                setCurrentOrder(order); setCart([]); setIsPaymentModalOpen(false); setShowReceipt(true);
-             }} className="w-full bg-sky-600 text-white py-6 rounded-[2.5rem] font-bold shadow-xl shadow-sky-200 active:scale-95 mb-4">ชำระเงินเรียบร้อย</button>
-             <button onClick={()=>setIsPaymentModalOpen(false)} className="text-slate-300 text-[10px] font-bold uppercase">ยกเลิกรายการ</button>
+                const order = { id: uuidv4(), items: [...cart], total, date: new Date().toLocaleString(), timestamp: Date.now(), paymentMethod, status: 'Paid' as OrderStatus };
+                if (isCloudActive && db) try { setDoc(doc(db, 'sales', order.id), order); } catch(e){}
+                setRecentSales(prev => [order, ...prev]); setCurrentOrder(order); setCart([]); setIsPaymentModalOpen(false); setShowReceipt(true);
+             }} className="w-full bg-sky-600 text-white py-6 rounded-[2.5rem] font-bold shadow-xl active:scale-95">ชำระเงินเรียบร้อย</button>
+             <button onClick={()=>setIsPaymentModalOpen(false)} className="mt-4 text-slate-300 text-[10px] font-bold uppercase">ยกเลิก</button>
           </div>
         </div>
       )}
-
+      
       {isProductModalOpen && (
         <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-4 backdrop-blur-sm">
-          <div className="bg-white rounded-[3rem] w-full max-w-md p-10 shadow-2xl overflow-y-auto max-h-[90vh]">
+          <div className="bg-white rounded-[3rem] w-full max-w-md p-10 shadow-2xl">
             <h3 className="text-2xl font-bold mb-8">{editingProduct ? 'แก้ไขสินค้า' : 'เพิ่มสินค้า'}</h3>
             <form onSubmit={e => {
-              e.preventDefault();
-              const formData = new FormData(e.currentTarget);
-              const product = {
+              e.preventDefault(); const fd = new FormData(e.currentTarget);
+              const prod = {
                 id: editingProduct?.id || uuidv4(),
-                name: formData.get('name') as string,
-                code: formData.get('code') as string,
-                category: formData.get('category') as string,
-                cost: parseFloat(formData.get('cost') as string) || 0,
-                price: parseFloat(formData.get('price') as string) || 0,
-                stock: parseInt(formData.get('stock') as string) || 0,
+                name: fd.get('name') as string,
+                code: fd.get('code') as string,
+                category: "General", cost: 0,
+                price: parseFloat(fd.get('price') as string) || 0,
+                stock: parseInt(fd.get('stock') as string) || 0,
                 color: editingProduct?.color || COLORS[Math.floor(Math.random()*COLORS.length)],
                 imageUrl: editingProduct?.imageUrl
               };
-              saveProductData(product); setIsProductModalOpen(false); setEditingProduct(null);
+              saveProductData(prod); setIsProductModalOpen(false);
             }} className="space-y-6">
               <div className="flex flex-col items-center">
                 <div onClick={() => productImgInputRef.current?.click()} className="w-32 h-32 bg-slate-50 border-2 border-dashed border-slate-200 rounded-[2rem] flex items-center justify-center cursor-pointer overflow-hidden relative">
                   {editingProduct?.imageUrl ? <img src={editingProduct.imageUrl} className="w-full h-full object-cover" /> : <ImagePlus size={24} className="text-slate-300"/>}
-                  {isUploading && <div className="absolute inset-0 bg-white/60 flex items-center justify-center"><Loader2 className="animate-spin text-sky-600" /></div>}
                 </div>
                 <input type="file" ref={productImgInputRef} className="hidden" accept="image/*" onChange={(e) => handleImageUpload(e, 'product')} />
               </div>
-              <div className="space-y-4">
-                <input name="name" placeholder="ชื่อสินค้า" required defaultValue={editingProduct?.name} className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none" />
-                <input name="code" placeholder="SKU / รหัสสินค้า" required defaultValue={editingProduct?.code} className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none" />
-                <input name="category" placeholder="หมวดหมู่" defaultValue={editingProduct?.category} className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none" />
-                <div className="grid grid-cols-2 gap-4">
-                   <input name="cost" type="number" placeholder="ต้นทุน" required defaultValue={editingProduct?.cost} className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none" />
-                   <input name="price" type="number" placeholder="ราคาขาย" required defaultValue={editingProduct?.price} className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none text-sky-600" />
-                </div>
-                <input name="stock" type="number" placeholder="จำนวนในสต็อก" required defaultValue={editingProduct?.stock} className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none" />
+              <input name="name" placeholder="ชื่อสินค้า" required defaultValue={editingProduct?.name} className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none" />
+              <div className="grid grid-cols-2 gap-4">
+                 <input name="price" type="number" placeholder="ราคา" required defaultValue={editingProduct?.price} className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none text-sky-600" />
+                 <input name="stock" type="number" placeholder="จำนวน" required defaultValue={editingProduct?.stock} className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none" />
               </div>
-              <div className="flex gap-4 pt-4">
-                <button type="button" onClick={()=>setIsProductModalOpen(false)} className="flex-1 py-4 border rounded-2xl font-bold text-slate-400">ยกเลิก</button>
-                <button type="submit" className="flex-2 py-4 bg-sky-600 text-white rounded-2xl font-bold shadow-lg px-8">บันทึก</button>
-              </div>
+              <div className="flex gap-4"><button type="button" onClick={()=>setIsProductModalOpen(false)} className="flex-1 py-4 border rounded-2xl font-bold text-slate-400">ยกเลิก</button><button type="submit" className="flex-1 py-4 bg-sky-600 text-white rounded-2xl font-bold shadow-lg">บันทึก</button></div>
             </form>
           </div>
         </div>
@@ -550,25 +448,14 @@ const App: React.FC = () => {
 
       {showReceipt && currentOrder && (
         <div className="fixed inset-0 bg-black/80 z-[200] flex items-center justify-center p-4 backdrop-blur-xl">
-            <div className="bg-white rounded-[3rem] w-full max-w-sm overflow-hidden flex flex-col shadow-2xl">
-              <div id="receipt-content" className="p-10 text-slate-800 bg-white font-mono text-[11px] leading-relaxed">
-                <div className="text-center border-b-2 border-dashed border-slate-200 pb-8 mb-8">
-                  {storeProfile.logoUrl ? <img src={storeProfile.logoUrl} className="w-20 h-20 mx-auto mb-4 object-contain rounded-2xl shadow-sm" /> : <div className="w-16 h-16 bg-sky-50 rounded-2xl mx-auto mb-4 flex items-center justify-center text-sky-600 font-bold">CP</div>}
-                  <h2 className="text-lg font-bold uppercase tracking-widest">{storeProfile.name}</h2>
-                  <p className="text-[9px] text-slate-400 max-w-[200px] mx-auto mt-2 leading-tight uppercase">{storeProfile.address}</p>
-                </div>
-                <div className="space-y-3 mb-8">
-                  {currentOrder.items.map((it, i) => (<div key={i} className="flex justify-between items-start gap-4"><span>{it.name} x{it.quantity}</span><span className="font-bold">{formatCurrency(it.price * it.quantity, language)}</span></div>))}
-                </div>
-                <div className="border-t-2 border-dashed border-slate-200 pt-8 space-y-3">
-                  <div className="flex justify-between text-xl font-bold text-slate-900 pt-2"><span className="uppercase tracking-widest">ยอดรวม:</span><span>{formatCurrency(currentOrder.total, language)}</span></div>
-                </div>
-                <div className="text-center mt-12 text-[10px] text-slate-300 font-bold uppercase tracking-[0.4em]">ขอบใจที่ใช้บริการ</div>
+            <div className="bg-white rounded-[3rem] w-full max-w-sm overflow-hidden p-10 flex flex-col shadow-2xl text-center">
+              <div className="mb-8 pb-8 border-b-2 border-dashed">
+                {storeProfile.logoUrl && <img src={storeProfile.logoUrl} className="w-20 h-20 mx-auto mb-4 object-contain rounded-2xl" />}
+                <h2 className="text-lg font-bold">{storeProfile.name}</h2>
               </div>
-              <div className="p-8 bg-slate-50 border-t flex gap-4">
-                <button onClick={()=>setShowReceipt(false)} className="flex-1 py-5 bg-white border border-slate-200 rounded-[1.5rem] font-bold text-slate-400 text-xs uppercase hover:bg-slate-100 transition-all">ปิด</button>
-                <button onClick={()=>window.print()} className="flex-1 py-5 bg-sky-600 text-white rounded-[1.5rem] font-bold text-xs uppercase shadow-lg flex items-center justify-center gap-2"><Printer size={16}/> พิมพ์บิล</button>
-              </div>
+              <div className="space-y-3 mb-8 text-left">{currentOrder.items.map((it, i) => (<div key={i} className="flex justify-between"><span>{it.name} x{it.quantity}</span><span className="font-bold">{formatCurrency(it.price * it.quantity, language)}</span></div>))}</div>
+              <div className="text-3xl font-bold mb-8">{formatCurrency(currentOrder.total, language)}</div>
+              <button onClick={()=>setShowReceipt(false)} className="w-full py-5 bg-sky-600 text-white rounded-[1.5rem] font-bold shadow-lg">ปิดหน้าต่าง</button>
             </div>
         </div>
       )}
