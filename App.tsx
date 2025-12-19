@@ -6,7 +6,8 @@ import {
   LayoutDashboard, Settings, UploadCloud, FileDown, ImagePlus, AlertTriangle, TrendingUp, DollarSign, Package,
   ClipboardList, Truck, MapPin, Phone, User, X, BarChart3, Wallet, PieChart, ChevronRight, History, DatabaseBackup,
   Calendar, Gift, Tag, RefreshCw, Eraser, Cloud, CloudOff, Info, ArrowUpCircle, Filter, Wifi,
-  Download, Upload, Smartphone, Percent, Box, TruckIcon, CheckCircle2, Clock, FileSpreadsheet, ChevronDown
+  Download, Upload, Smartphone, Percent, Box, TruckIcon, CheckCircle2, Clock, FileSpreadsheet, ChevronDown,
+  FileDown as DownloadIcon
 } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import { streamResponse } from './services/gemini';
@@ -164,7 +165,23 @@ const App: React.FC = () => {
     }
   };
 
-  // NEW: Optimized CSV Importer for robust parsing
+  // Helper to Download CSV Template
+  const downloadCSVTemplate = () => {
+    const headers = ["Product Name", "SKU Code", "Category", "Cost Price", "Sale Price", "Stock Quantity"];
+    const example = ["Americano", "COFFEE-01", "Drink", "5000", "15000", "50"];
+    const csvContent = "\uFEFF" + [headers.join(","), example.join(",")].join("\n");
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement("a");
+    const url = URL.createObjectURL(blob);
+    link.setAttribute("href", url);
+    link.setAttribute("download", "product_template.csv");
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  // Robust CSV Importer
   const handleImportCSV = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -179,10 +196,8 @@ const App: React.FC = () => {
           return;
         }
 
-        // Auto-detect delimiter
         const firstLine = rows[0];
         const delimiter = firstLine.includes(';') ? ';' : ',';
-
         const importedProducts: Product[] = [];
         const firstRowLower = firstLine.toLowerCase();
         const headerKeywords = ['name', 'product', 'สินค้า', 'ชื่อ', 'รหัส', 'sku'];
@@ -191,8 +206,6 @@ const App: React.FC = () => {
         for (let i = startIdx; i < rows.length; i++) {
           const row = rows[i];
           let cols: string[] = [];
-
-          // Handle CSV with quotes correctly
           if (row.includes('"')) {
             const parts = [];
             let current = '';
@@ -215,7 +228,6 @@ const App: React.FC = () => {
           if (cols.length >= 2 && cols[0]) {
             const cleanNum = (val: string) => {
               if (!val) return 0;
-              // Remove commas, spaces, and currency symbols
               const cleaned = val.replace(/,/g, '').replace(/[^\d.-]/g, '');
               const num = parseFloat(cleaned);
               return isNaN(num) ? 0 : num;
@@ -231,20 +243,15 @@ const App: React.FC = () => {
               stock: cleanNum(cols[5]),
               color: COLORS[Math.floor(Math.random() * COLORS.length)],
             };
-            
             await saveProductData(product);
             importedProducts.push(product);
           }
         }
-
-        if (!isCloudEnabled) {
-          setProducts(prev => [...prev, ...importedProducts]);
-        }
-
+        if (!isCloudEnabled) setProducts(prev => [...prev, ...importedProducts]);
         alert(`นำเข้าสำเร็จ ${importedProducts.length} รายการ`);
       } catch (err) {
         console.error('Import CSV Error:', err);
-        alert('เกิดข้อผิดพลาด: โปรดตรวจสอบว่าไฟล์เป็น CSV (UTF-8) และคั่นด้วย Comma หรือ Semicolon');
+        alert('เกิดข้อผิดพลาด: โปรดดาวน์โหลดไฟล์ตัวอย่างและใช้ตามรูปแบบที่กำหนด (UTF-8)');
       } finally {
         if (csvInputRef.current) csvInputRef.current.value = '';
       }
@@ -423,7 +430,14 @@ const App: React.FC = () => {
 
   const renderStock = () => (
     <div className="p-4 md:p-6 h-full overflow-y-auto bg-slate-50/50">
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8"><h2 className="text-xl font-bold text-slate-800 flex items-center gap-2"><Package className="text-sky-600" /> {t.stock_title}</h2><div className="flex gap-2 w-full sm:w-auto"><button onClick={() => csvInputRef.current?.click()} className="flex-1 sm:flex-none bg-emerald-50 text-emerald-600 px-5 py-2.5 rounded-2xl text-xs font-bold flex items-center justify-center gap-2 border border-emerald-100 transition-all hover:bg-emerald-100"><FileSpreadsheet size={16}/> {t.stock_import_csv}</button><button onClick={() => { setEditingProduct(null); setIsProductModalOpen(true); }} className="flex-1 sm:flex-none bg-sky-600 text-white px-5 py-2.5 rounded-2xl text-xs font-bold flex items-center justify-center gap-2 shadow-lg shadow-sky-100 transition-all hover:bg-sky-700"><Plus size={16}/> {t.stock_add}</button></div></div>
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8">
+            <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2"><Package className="text-sky-600" /> {t.stock_title}</h2>
+            <div className="flex flex-wrap gap-2 w-full sm:w-auto">
+                <button onClick={downloadCSVTemplate} className="flex-1 sm:flex-none bg-sky-50 text-sky-600 px-4 py-2.5 rounded-2xl text-xs font-bold flex items-center justify-center gap-2 border border-sky-100 transition-all hover:bg-sky-100 shadow-sm"><DownloadIcon size={16}/> ตัวอย่าง CSV</button>
+                <button onClick={() => csvInputRef.current?.click()} className="flex-1 sm:flex-none bg-emerald-50 text-emerald-600 px-4 py-2.5 rounded-2xl text-xs font-bold flex items-center justify-center gap-2 border border-emerald-100 transition-all hover:bg-emerald-100 shadow-sm"><FileSpreadsheet size={16}/> นำเข้าสินค้า</button>
+                <button onClick={() => { setEditingProduct(null); setIsProductModalOpen(true); }} className="flex-1 sm:flex-none bg-sky-600 text-white px-5 py-2.5 rounded-2xl text-xs font-bold flex items-center justify-center gap-2 shadow-lg shadow-sky-100 transition-all hover:bg-sky-700"><Plus size={16}/> เพิ่มใหม่</button>
+            </div>
+        </div>
         <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden"><div className="overflow-x-auto"><table className="w-full text-left text-sm whitespace-nowrap"><thead className="bg-slate-50/50 border-b border-slate-100 text-slate-500"><tr><th className="px-6 py-4 font-bold text-[10px] uppercase tracking-wider">รหัส SKU</th><th className="px-6 py-4 font-bold text-[10px] uppercase tracking-wider">ชื่อสินค้า</th><th className="px-6 py-4 text-right font-bold text-[10px] uppercase tracking-wider">ราคาขาย</th><th className="px-6 py-4 text-center font-bold text-[10px] uppercase tracking-wider">คงเหลือ</th><th className="px-6 py-4 text-center font-bold text-[10px] uppercase tracking-wider">จัดการ</th></tr></thead><tbody className="divide-y divide-slate-50">{products.map(p => (<tr key={p.id} className="hover:bg-slate-50/50 transition-colors"><td className="px-6 py-4 font-mono text-[10px] text-slate-400">{p.code}</td><td className="px-6 py-4 font-bold text-slate-700">{p.name}</td><td className="px-6 py-4 text-right font-bold text-sky-600">{formatCurrency(p.price, language)}</td><td className="px-6 py-4 text-center"><span className={`px-3 py-1 rounded-full font-bold text-[10px] ${checkIsLowStock(p) ? 'bg-red-100 text-red-600' : 'bg-slate-100 text-slate-500'}`}>{p.stock} units</span></td><td className="px-6 py-4"><div className="flex justify-center gap-2"><button onClick={() => { setEditingProduct(p); setIsProductModalOpen(true); }} className="p-2 text-slate-300 hover:text-sky-600 hover:bg-sky-50 rounded-xl transition-all"><Edit size={16}/></button><button onClick={() => { if (confirm('ยืนยันลบสิค้า?')) setProducts(prev => prev.filter(it => it.id !== p.id)); }} className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all"><Trash2 size={16}/></button></div></td></tr>))}</tbody></table></div></div>
     </div>
   );
@@ -456,7 +470,15 @@ const App: React.FC = () => {
                <div className="flex-1 space-y-5"><div className="grid grid-cols-1 sm:grid-cols-2 gap-4"><div className="space-y-1"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">ชื่อร้าน</label><input value={storeProfile.name} onChange={e => setStoreProfile({...storeProfile, name: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl text-sm font-bold outline-none"/></div><div className="space-y-1"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">เบอร์โทร</label><input value={storeProfile.phone} onChange={e => setStoreProfile({...storeProfile, phone: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl text-sm font-bold outline-none"/></div></div><div className="space-y-1"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">ที่อยู่</label><textarea value={storeProfile.address} onChange={e => setStoreProfile({...storeProfile, address: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl text-sm font-bold h-24 outline-none resize-none"/></div><button onClick={()=>alert('บันทึกสำเร็จ')} className="flex items-center gap-2 px-6 py-3 bg-sky-600 text-white rounded-2xl font-bold text-xs shadow-lg hover:scale-95 transition-all"><Save size={16} /> บันทึกการตั้งค่า</button></div>
             </div>
           </div>
-          <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100"><h3 className="font-bold text-slate-400 mb-6 flex items-center gap-2 text-[10px] uppercase tracking-widest"><DatabaseBackup size={16}/> ระบบข้อมูล</h3><div className="grid grid-cols-1 sm:grid-cols-3 gap-4"><button className="p-6 bg-slate-50 rounded-2xl hover:bg-sky-50 border border-slate-100 flex flex-col items-center gap-3 transition-all"><Download className="text-sky-600"/><span className="text-[10px] font-bold uppercase tracking-widest">สำรองข้อมูล</span></button><button onClick={() => csvInputRef.current?.click()} className="p-6 bg-slate-50 rounded-2xl hover:bg-sky-50 border border-slate-100 flex flex-col items-center gap-3 transition-all"><Upload className="text-sky-600"/><span className="text-[10px] font-bold uppercase tracking-widest">นำเข้า CSV</span></button><button onClick={() => { if(confirm('รีเซ็ตข้อมูลทั้งหมด?')) { localStorage.clear(); window.location.reload(); } }} className="p-6 bg-red-50/50 rounded-2xl hover:bg-red-50 border border-red-100 flex flex-col items-center gap-3 transition-all text-red-500"><Trash2 /><span className="text-[10px] font-bold uppercase tracking-widest">ล้างข้อมูล</span></button></div></div>
+          <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100">
+            <h3 className="font-bold text-slate-400 mb-6 flex items-center gap-2 text-[10px] uppercase tracking-widest"><DatabaseBackup size={16}/> ระบบข้อมูล</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <button onClick={downloadCSVTemplate} className="p-6 bg-sky-50 rounded-2xl hover:bg-sky-100 border border-sky-100 flex flex-col items-center gap-3 transition-all text-sky-600"><DownloadIcon /><span className="text-[10px] font-bold uppercase tracking-widest">Template CSV</span></button>
+                <button onClick={() => csvInputRef.current?.click()} className="p-6 bg-emerald-50 rounded-2xl hover:bg-emerald-100 border border-emerald-100 flex flex-col items-center gap-3 transition-all text-emerald-600"><Upload /><span className="text-[10px] font-bold uppercase tracking-widest">นำเข้า CSV</span></button>
+                <button className="p-6 bg-slate-50 rounded-2xl hover:bg-slate-100 border border-slate-100 flex flex-col items-center gap-3 transition-all text-slate-500"><Download /><span className="text-[10px] font-bold uppercase tracking-widest">สำรอง (SQL)</span></button>
+                <button onClick={() => { if(confirm('รีเซ็ตข้อมูลทั้งหมด?')) { localStorage.clear(); window.location.reload(); } }} className="p-6 bg-red-50/50 rounded-2xl hover:bg-red-50 border border-red-100 flex flex-col items-center gap-3 transition-all text-red-500"><Trash2 /><span className="text-[10px] font-bold uppercase tracking-widest">ล้างข้อมูล</span></button>
+            </div>
+          </div>
       </div>
     </div>
   );
