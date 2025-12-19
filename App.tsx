@@ -165,23 +165,21 @@ const App: React.FC = () => {
     }
   };
 
-  // Helper to Download CSV Template
   const downloadCSVTemplate = () => {
+    // Standard headers with no BOM to avoid confusion, or explicit BOM for Excel
     const headers = ["Product Name", "SKU Code", "Category", "Cost Price", "Sale Price", "Stock Quantity"];
     const example = ["Americano", "COFFEE-01", "Drink", "5000", "15000", "50"];
     const csvContent = "\uFEFF" + [headers.join(","), example.join(",")].join("\n");
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement("a");
-    const url = URL.createObjectURL(blob);
-    link.setAttribute("href", url);
+    link.href = URL.createObjectURL(blob);
     link.setAttribute("download", "product_template.csv");
-    link.style.visibility = 'hidden';
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
   };
 
-  // Robust CSV Importer
+  // Re-engineered CSV Importer: Advanced and Robust
   const handleImportCSV = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -189,69 +187,77 @@ const App: React.FC = () => {
     const reader = new FileReader();
     reader.onload = async (event) => {
       try {
-        const text = event.target?.result as string;
+        let text = event.target?.result as string;
+        
+        // 1. Strip UTF-8 BOM if present
+        if (text.charCodeAt(0) === 0xFEFF) {
+          text = text.substring(1);
+        }
+
         const rows = text.split(/\r?\n/).filter(row => row.trim() !== '');
         if (rows.length < 1) {
-          alert('ไฟล์ไม่มีข้อมูล');
+          alert('ไม่พบข้อมูลในไฟล์');
           return;
         }
 
-        const firstLine = rows[0];
-        const delimiter = firstLine.includes(';') ? ';' : ',';
-        const importedProducts: Product[] = [];
-        const firstRowLower = firstLine.toLowerCase();
+        // 2. Intelligent Delimiter Detection
+        const firstRow = rows[0];
+        const delimiter = firstRow.includes(';') ? ';' : ',';
+
+        // 3. Robust Row Parsing (Handles quotes and embedded delimiters)
+        const parseRow = (row: string) => {
+          const regex = new RegExp(`(?:${delimiter}|\\n|^)(?:"([^"]*(?:""[^"]*)*)"|([^"${delimiter}\\n]*))`, 'g');
+          const results = [];
+          let match;
+          while ((match = regex.exec(row)) !== null) {
+            results.push((match[1] || match[2] || "").trim().replace(/""/g, '"'));
+          }
+          return results;
+        };
+
+        const firstRowParsed = parseRow(firstRow);
         const headerKeywords = ['name', 'product', 'สินค้า', 'ชื่อ', 'รหัส', 'sku'];
-        const startIdx = headerKeywords.some(k => firstRowLower.includes(k)) ? 1 : 0;
+        const isHeader = firstRowParsed.some(val => headerKeywords.some(k => val.toLowerCase().includes(k)));
+        const startIdx = isHeader ? 1 : 0;
+
+        let successCount = 0;
+        const newProducts: Product[] = [];
 
         for (let i = startIdx; i < rows.length; i++) {
-          const row = rows[i];
-          let cols: string[] = [];
-          if (row.includes('"')) {
-            const parts = [];
-            let current = '';
-            let inQuotes = false;
-            for (let char of row) {
-              if (char === '"') inQuotes = !inQuotes;
-              else if (char === delimiter && !inQuotes) {
-                parts.push(current.trim());
-                current = '';
-              } else {
-                current += char;
-              }
-            }
-            parts.push(current.trim());
-            cols = parts;
-          } else {
-            cols = row.split(delimiter).map(c => c.trim());
-          }
+          const cols = parseRow(rows[i]);
+          if (cols.length < 2 || !cols[0]) continue; // Skip invalid rows
 
-          if (cols.length >= 2 && cols[0]) {
-            const cleanNum = (val: string) => {
-              if (!val) return 0;
-              const cleaned = val.replace(/,/g, '').replace(/[^\d.-]/g, '');
-              const num = parseFloat(cleaned);
-              return isNaN(num) ? 0 : num;
-            };
+          const cleanNum = (val: string) => {
+            if (!val) return 0;
+            const cleaned = val.replace(/,/g, '').replace(/[^\d.-]/g, '');
+            const n = parseFloat(cleaned);
+            return isNaN(n) ? 0 : n;
+          };
 
-            const product: Product = {
-              id: uuidv4(),
-              name: cols[0],
-              code: cols[1] || `SKU-${Math.random().toString(36).substr(2, 5).toUpperCase()}`,
-              category: cols[2] || 'General',
-              cost: cleanNum(cols[3]),
-              price: cleanNum(cols[4]),
-              stock: cleanNum(cols[5]),
-              color: COLORS[Math.floor(Math.random() * COLORS.length)],
-            };
-            await saveProductData(product);
-            importedProducts.push(product);
-          }
+          const p: Product = {
+            id: uuidv4(),
+            name: cols[0],
+            code: cols[1] || `SKU-${Math.random().toString(36).substr(2, 5).toUpperCase()}`,
+            category: cols[2] || 'General',
+            cost: cleanNum(cols[3]),
+            price: cleanNum(cols[4]),
+            stock: cleanNum(cols[5]),
+            color: COLORS[Math.floor(Math.random() * COLORS.length)],
+          };
+
+          await saveProductData(p);
+          newProducts.push(p);
+          successCount++;
         }
-        if (!isCloudEnabled) setProducts(prev => [...prev, ...importedProducts]);
-        alert(`นำเข้าสำเร็จ ${importedProducts.length} รายการ`);
+
+        if (!isCloudEnabled) {
+          setProducts(prev => [...prev, ...newProducts]);
+        }
+
+        alert(`นำเข้าเรียบร้อย! ทั้งหมด ${successCount} รายการ`);
       } catch (err) {
-        console.error('Import CSV Error:', err);
-        alert('เกิดข้อผิดพลาด: โปรดดาวน์โหลดไฟล์ตัวอย่างและใช้ตามรูปแบบที่กำหนด (UTF-8)');
+        console.error('Import Error:', err);
+        alert('นำเข้าไม่สำเร็จ: กรุณาตรวจสอบว่าไฟล์เป็น .csv และเข้ารหัสแบบ UTF-8');
       } finally {
         if (csvInputRef.current) csvInputRef.current.value = '';
       }
