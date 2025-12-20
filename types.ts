@@ -45,6 +45,8 @@ export type LogisticsProvider = 'Anuchit' | 'Meexai' | 'Rungarun' | 'Other' | 'N
 
 export type OrderStatus = 'Pending' | 'Paid' | 'Shipped' | 'Completed';
 
+export type PaymentMethod = 'Transfer' | 'COD';
+
 export interface SaleRecord {
   id: string;
   items: CartItem[];
@@ -54,6 +56,7 @@ export interface SaleRecord {
   date: string;
   timestamp: number;
   status: OrderStatus;
+  paymentMethod?: PaymentMethod;
   customerName?: string;
   customerPhone?: string;
   customerAddress?: string;
@@ -78,5 +81,5 @@ export interface Promotion {
   name: string;
   targetProductId: string;
   isActive: boolean;
-  tiers: PromoTier[]; // Must have 7 tiers as per requirement
+  tiers: PromoTier[];
 }
