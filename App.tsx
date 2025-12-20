@@ -129,7 +129,6 @@ const App: React.FC = () => {
   };
 
   const exportRawData = () => {
-    // แก้ไขคอลัมน์ CSV ให้ถูกต้องตามลำดับความเป็นจริง
     const headers = ["OrderID", "Date", "Customer", "Phone", "Address", "Payment", "Status", "Item", "Qty", "Cost/Unit", "Price/Unit", "ItemTotal", "BillTotal"];
     const rows = recentSales.flatMap(s => 
       s.items.map(i => {
@@ -164,7 +163,6 @@ const App: React.FC = () => {
     const validSales = recentSales.filter(s => s.status !== 'Cancelled');
     const totalRevenue = validSales.reduce((a, b) => a + Number(b.total || 0), 0);
     
-    // Fix Stock Asset calculation
     const stockValue = products.reduce((a, b) => {
        const cost = Number(b.cost);
        const stock = Number(b.stock);
@@ -179,14 +177,15 @@ const App: React.FC = () => {
       }, 0);
     }, 0);
 
-    // กราฟรายเดือน (Mock logic: ดึงจาก string date "12/20/2025")
     const monthlyData: Record<string, number> = {};
     validSales.forEach(s => {
-      const monthStr = s.date.split('/')[0] + '/' + s.date.split('/')[2].split(' ')[0];
-      monthlyData[monthStr] = (monthlyData[monthStr] || 0) + Number(s.total);
+      const parts = s.date.split('/');
+      if (parts.length >= 3) {
+        const monthStr = parts[0] + '/' + parts[2].split(' ')[0];
+        monthlyData[monthStr] = (monthlyData[monthStr] || 0) + Number(s.total);
+      }
     });
     
-    // Top 10 SKUs
     const productCounts: Record<string, {name: string, qty: number}> = {};
     validSales.forEach(s => s.items.forEach(i => {
       if (!productCounts[i.id]) productCounts[i.id] = {name: i.name, qty: 0};
@@ -194,7 +193,6 @@ const App: React.FC = () => {
     }));
     const topProducts = Object.values(productCounts).sort((a,b) => b.qty - a.qty).slice(0, 10);
 
-    // Top 10 Customers
     const customerCounts: Record<string, {name: string, total: number}> = {};
     validSales.forEach(s => {
       const cName = s.customerName || "Anonymous";
@@ -302,8 +300,8 @@ const App: React.FC = () => {
                        {t.stock_add}
                     </button>
                  </div>
-                 <div className="bg-white rounded-[2.5rem] border overflow-hidden shadow-sm">
-                    <table className="w-full text-left">
+                 <div className="bg-white rounded-[2.5rem] border overflow-hidden shadow-sm overflow-x-auto">
+                    <table className="w-full text-left min-w-[600px]">
                        <thead className="bg-slate-50 border-b text-[10px] font-black uppercase text-slate-400 tracking-widest">
                           <tr><th className="px-8 py-5">Item</th><th className="px-8 py-5 text-right">Cost</th><th className="px-8 py-5 text-right">Price</th><th className="px-8 py-5 text-center">In Stock</th><th className="px-8 py-5 text-center">Edit</th></tr>
                        </thead>
@@ -330,7 +328,7 @@ const App: React.FC = () => {
 
             {mode === AppMode.PROMOTIONS && (
               <div className="space-y-6 animate-in slide-in-from-bottom-5">
-                <div className="flex justify-between items-center">
+                 <div className="flex justify-between items-center">
                     <h2 className="text-2xl font-black text-slate-800 flex items-center gap-3"><Tag className="text-sky-500"/> {t.menu_promotions}</h2>
                     <button onClick={()=>{setEditingPromo(null); setPromoSkusInput(''); setIsPromoModalOpen(true);}} className="bg-sky-600 text-white px-8 py-4 rounded-2xl font-black shadow-xl hover:bg-sky-700 transition-all flex items-center gap-2">
                        <Plus size={20}/> {t.promo_add}
@@ -371,19 +369,17 @@ const App: React.FC = () => {
                     </Card>
                  </div>
 
-                 {/* กราฟรายเดือน */}
                  <Card>
-                    <h4 className="text-sm font-black text-slate-800 uppercase tracking-widest mb-8 flex items-center gap-2"><BarChart2 size={18} className="text-sky-500"/> Monthly Sales Performance</h4>
-                    <div className="flex items-end gap-2 h-40">
+                    <h4 className="text-sm font-black text-slate-800 uppercase tracking-widest mb-8 flex items-center gap-2"><BarChart2 size={18} className="text-sky-500"/> Monthly Performance</h4>
+                    <div className="flex items-end gap-2 h-40 overflow-x-auto pb-2">
                       {Object.entries(reportStats.monthlyData).map(([month, val], i) => {
-                        // Fix: Explicitly cast 'unknown' values and Object.values to 'number' types to resolve errors on lines 379, 380, and 383.
                         const allValues = Object.values(reportStats.monthlyData) as number[];
                         const maxVal = Math.max(...allValues, 1);
                         const currentVal = val as number;
                         const height = (currentVal / maxVal) * 100;
                         return (
-                          <div key={i} className="flex-1 flex flex-col items-center gap-2">
-                             <div className="text-[8px] font-black text-slate-400">{formatMoney(currentVal)}</div>
+                          <div key={i} className="flex-1 min-w-[60px] flex flex-col items-center gap-2">
+                             <div className="text-[8px] font-black text-slate-400">{formatMoney(currentVal).replace('LAK','')}</div>
                              <div className="w-full bg-sky-500 rounded-t-xl transition-all duration-1000" style={{ height: `${height}%` }}></div>
                              <div className="text-[10px] font-black text-slate-800">{month}</div>
                           </div>
@@ -393,7 +389,6 @@ const App: React.FC = () => {
                  </Card>
 
                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                    {/* Top 10 SKUs */}
                     <Card>
                         <h4 className="text-sm font-black text-slate-800 uppercase tracking-widest mb-8 flex items-center gap-2"><PieChart size={18} className="text-sky-500"/> TOP 10 BEST SELLERS</h4>
                         <div className="space-y-4">
@@ -409,7 +404,6 @@ const App: React.FC = () => {
                         </div>
                     </Card>
 
-                    {/* Top 10 Customers */}
                     <Card>
                         <h4 className="text-sm font-black text-slate-800 uppercase tracking-widest mb-8 flex items-center gap-2"><Users size={18} className="text-sky-500"/> TOP 10 VALUABLE CUSTOMERS</h4>
                         <div className="space-y-4">
@@ -466,7 +460,7 @@ const App: React.FC = () => {
       {isBillModalOpen && (
         <div className="fixed inset-0 bg-slate-950/90 z-[500] flex items-center justify-center p-4 backdrop-blur-xl animate-in zoom-in-95">
           <div className="bg-white w-full max-w-[95vw] h-[95vh] rounded-[4rem] shadow-2xl flex flex-col md:flex-row overflow-hidden">
-             <div className="w-full md:w-[40%] bg-slate-50 border-r flex flex-col h-full p-8">
+             <div className="w-full md:w-[40%] bg-slate-50 border-r flex flex-col h-full p-8 overflow-y-auto">
                 <div className="flex justify-between items-center mb-6">
                    <h3 className="text-2xl font-black text-slate-800 flex items-center gap-3"><ShoppingCart className="text-sky-500"/> {t.order_create_bill}</h3>
                    <button onClick={()=>setIsBillModalOpen(false)} className="p-3 bg-slate-100 rounded-full hover:bg-rose-500 hover:text-white transition-all"><X size={20}/></button>
@@ -481,7 +475,7 @@ const App: React.FC = () => {
                          <option value="COD">COD</option>
                       </select>
                    </div>
-                   <textarea value={customerAddress} onChange={e=>setCustomerAddress(e.target.value)} placeholder={t.order_cust_addr} className="w-full p-3 bg-white border rounded-xl font-bold h-20 outline-none shadow-sm" />
+                   <textarea value={customerAddress} onChange={e=>setCustomerAddress(e.target.value)} placeholder={t.order_cust_addr} className="w-full p-3 bg-white border rounded-xl font-bold h-20 outline-none shadow-sm resize-none" />
                    <select value={shippingCarrier} onChange={e=>setShippingCarrier(e.target.value as any)} className="w-full p-3 bg-white border rounded-xl font-bold shadow-sm">
                       <option value="None">หน้าร้าน (Takeaway)</option>
                       <option value="Anuchit">Anuchit</option>
@@ -490,7 +484,7 @@ const App: React.FC = () => {
                    </select>
                 </div>
 
-                <div className="flex-1 overflow-y-auto space-y-3 custom-scrollbar pr-2">
+                <div className="flex-1 overflow-y-auto space-y-3 custom-scrollbar pr-2 min-h-[200px]">
                    {billItems.map(it => (
                       <div key={it.id} className="flex items-center gap-4 p-4 bg-white rounded-3xl border shadow-sm">
                          <div className="w-10 h-10 rounded-xl overflow-hidden bg-slate-100 flex items-center justify-center font-black">
@@ -507,7 +501,7 @@ const App: React.FC = () => {
                    ))}
                 </div>
                 
-                <div className="mt-4 p-6 bg-white rounded-[2.5rem] shadow-xl">
+                <div className="mt-4 p-6 bg-white rounded-[2.5rem] shadow-xl border md:border-0">
                    <div className="flex justify-between items-center mb-4"><span className="text-xs font-black text-slate-400">TOTAL</span><span className="text-3xl font-black text-sky-600">{formatMoney(billItems.reduce((s,i)=>s+(Number(i.price || 0)*i.quantity),0))}</span></div>
                    <button onClick={handleCheckout} className="w-full py-5 bg-sky-600 text-white rounded-2xl font-black text-xl hover:bg-sky-700 shadow-xl active:scale-95 transition-all">CHECKOUT</button>
                 </div>
@@ -554,10 +548,9 @@ const App: React.FC = () => {
                 <div><label className="text-[10px] font-black text-slate-400 uppercase ml-1">Promotion Name</label><input name="name" required defaultValue={editingPromo?.name} className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none" /></div>
                 <div>
                    <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Apply to SKUs (Separate by commas)</label>
-                   <textarea value={promoSkusInput} onChange={e=>setPromoSkusInput(e.target.value)} placeholder={t.promo_sku_placeholder} className="w-full p-4 bg-slate-50 border rounded-2xl font-bold h-24 outline-none" />
-                   <p className="text-[10px] text-slate-400 mt-2 italic font-bold">Paste SKUs here: e.g. 001, 002, 005</p>
+                   <textarea value={promoSkusInput} onChange={e=>setPromoSkusInput(e.target.value)} placeholder={t.promo_sku_placeholder} className="w-full p-4 bg-slate-50 border rounded-2xl font-bold h-24 outline-none resize-none" />
                 </div>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {Array.from({length: 7}).map((_, i) => (
                     <div key={i} className="flex gap-2 items-center bg-slate-50 p-3 rounded-2xl border border-slate-100">
                       <input name={`qty_${i+1}`} type="number" placeholder="Qty" defaultValue={editingPromo?.tiers?.[i]?.minQty} className="w-16 p-2 bg-white border rounded text-center font-bold outline-none" />
@@ -601,14 +594,14 @@ const App: React.FC = () => {
                     </label>
                   </div>
                 </div>
-                <div><label className="text-[10px] font-black text-slate-400 uppercase ml-1">Name</label><input name="name" required defaultValue={editingProduct?.name} className="w-full p-4 bg-slate-50 border rounded-xl font-bold outline-none" /></div>
-                <div><label className="text-[10px] font-black text-slate-400 uppercase ml-1">SKU Code</label><input name="code" required defaultValue={editingProduct?.code} className="w-full p-4 bg-slate-50 border rounded-xl font-bold outline-none" /></div>
+                <div><label className="text-[10px] font-black text-slate-400 uppercase ml-1">Name</label><input name="name" required defaultValue={editingProduct?.name} className="w-full p-4 bg-slate-50 border rounded-xl font-bold outline-none text-sm" /></div>
+                <div><label className="text-[10px] font-black text-slate-400 uppercase ml-1">SKU Code</label><input name="code" required defaultValue={editingProduct?.code} className="w-full p-4 bg-slate-50 border rounded-xl font-bold outline-none text-sm" /></div>
                 <div className="grid grid-cols-2 gap-4">
-                   <div><label className="text-[10px] font-black text-slate-400 uppercase ml-1">Cost</label><input name="cost" type="number" required defaultValue={editingProduct?.cost} className="w-full p-4 bg-slate-50 border rounded-xl font-bold outline-none" /></div>
-                   <div><label className="text-[10px] font-black text-slate-400 uppercase ml-1">Retail Price</label><input name="price" type="number" required defaultValue={editingProduct?.price} className="w-full p-4 bg-sky-50 border-sky-100 rounded-xl font-black text-sky-600 outline-none" /></div>
+                   <div><label className="text-[10px] font-black text-slate-400 uppercase ml-1">Cost</label><input name="cost" type="number" required defaultValue={editingProduct?.cost} className="w-full p-4 bg-slate-50 border rounded-xl font-bold text-sm" /></div>
+                   <div><label className="text-[10px] font-black text-slate-400 uppercase ml-1">Retail Price</label><input name="price" type="number" required defaultValue={editingProduct?.price} className="w-full p-4 bg-sky-50 border-sky-100 rounded-xl font-black text-sky-600 text-sm" /></div>
                 </div>
-                <div><label className="text-[10px] font-black text-slate-400 uppercase ml-1">In Stock</label><input name="stock" type="number" required defaultValue={editingProduct?.stock} className="w-full p-4 bg-slate-50 border rounded-xl font-bold outline-none" /></div>
-                <button type="submit" className="w-full py-5 bg-sky-600 text-white rounded-2xl font-black shadow-xl active:scale-95 transition-all">SAVE PRODUCT</button>
+                <div><label className="text-[10px] font-black text-slate-400 uppercase ml-1">In Stock</label><input name="stock" type="number" required defaultValue={editingProduct?.stock} className="w-full p-4 bg-slate-50 border rounded-xl font-bold text-sm" /></div>
+                <button type="submit" className="w-full py-5 bg-sky-600 text-white rounded-2xl font-black shadow-xl active:scale-95 transition-all text-sm md:text-base">SAVE PRODUCT</button>
              </form>
           </Card>
         </div>
