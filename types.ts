@@ -22,7 +22,6 @@ export enum AppMode {
   REPORTS = 'reports',
   PROMOTIONS = 'promotions',
   SETTINGS = 'settings',
-  // Added missing AI mode to the AppMode enum
   AI = 'ai'
 }
 

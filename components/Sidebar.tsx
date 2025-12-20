@@ -24,7 +24,6 @@ const Sidebar: React.FC<SidebarProps> = ({ currentMode, onModeChange, isOpen, se
     { mode: AppMode.STOCK, label: t.menu_stock, icon: Package },
     { mode: AppMode.PROMOTIONS, label: t.menu_promotions, icon: Tag },
     { mode: AppMode.REPORTS, label: t.menu_reports, icon: BarChart2 },
-    // Added AI Assistant to sidebar menu items
     { mode: AppMode.AI, label: t.menu_ai, icon: Bot },
     { mode: AppMode.SETTINGS, label: t.menu_settings, icon: Settings },
   ];
@@ -40,17 +39,17 @@ const Sidebar: React.FC<SidebarProps> = ({ currentMode, onModeChange, isOpen, se
 
       <aside className={`
         fixed md:relative z-[110] no-print
-        w-80 h-full bg-slate-900 text-white flex flex-col
+        w-80 h-full bg-[#0c162d] text-white flex flex-col
         transition-transform duration-300 ease-in-out shadow-2xl
         ${isOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
       `}>
-        <div className="p-10 border-b border-slate-800 flex justify-between items-center bg-slate-950">
+        <div className="p-10 border-b border-slate-800 flex justify-between items-center bg-[#081021]">
           <div className="flex items-center gap-4">
-            <div className="w-12 h-12 bg-sky-500 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-sky-900/20">
+            <div className="w-12 h-12 bg-sky-500 rounded-2xl flex items-center justify-center text-white shadow-lg">
               <Coffee size={28} />
             </div>
             <div>
-              <h1 className="text-xl font-black tracking-tight text-sky-400">Coffee Please</h1>
+              <h1 className="text-xl font-black tracking-tight text-white">Coffee Please</h1>
               <p className="text-[10px] font-bold text-slate-500 tracking-[0.3em] uppercase">POS SYSTEM</p>
             </div>
           </div>
@@ -59,19 +58,19 @@ const Sidebar: React.FC<SidebarProps> = ({ currentMode, onModeChange, isOpen, se
           </button>
         </div>
 
-        <div className="px-8 py-8 bg-slate-900 border-b border-slate-800 flex gap-2">
+        <div className="px-8 py-8 flex gap-2">
             {['lo', 'th', 'en'].map((l) => (
               <button 
                 key={l}
                 onClick={() => setLanguage(l as Language)} 
-                className={`flex-1 py-3 rounded-2xl text-[10px] font-black uppercase transition-all duration-300 ${language === l ? 'bg-sky-600 text-white shadow-xl shadow-sky-900/40 scale-105' : 'bg-slate-800/50 text-slate-500 hover:bg-slate-800 hover:text-slate-300'}`}
+                className={`flex-1 py-3 rounded-2xl text-[10px] font-black uppercase transition-all duration-300 ${language === l ? 'bg-sky-600 text-white shadow-xl' : 'bg-slate-800/50 text-slate-500 hover:bg-slate-800 hover:text-slate-300'}`}
               >
                 {l === 'lo' ? 'ລາວ' : l === 'th' ? 'ไทย' : 'EN'}
               </button>
             ))}
         </div>
 
-        <nav className="flex-1 overflow-y-auto p-6 space-y-2 custom-scrollbar">
+        <nav className="flex-1 overflow-y-auto p-6 space-y-2">
           {menuItems.map((item) => (
             <button
               key={item.mode}
@@ -80,20 +79,20 @@ const Sidebar: React.FC<SidebarProps> = ({ currentMode, onModeChange, isOpen, se
                 setIsOpen(false);
               }}
               className={`
-                w-full flex items-center p-5 rounded-[1.5rem] transition-all duration-200 group
+                w-full flex items-center p-5 rounded-[1.5rem] transition-all duration-200
                 ${currentMode === item.mode 
-                  ? 'bg-sky-600 text-white shadow-2xl shadow-sky-900/40 translate-x-1' 
+                  ? 'bg-sky-600 text-white shadow-2xl translate-x-1' 
                   : 'text-slate-500 hover:bg-slate-800/50 hover:text-slate-200'}
               `}
             >
-              <item.icon className={`mr-5 ${currentMode === item.mode ? 'text-white' : 'opacity-40 group-hover:opacity-100 transition-opacity'}`} size={22} />
+              <item.icon className="mr-5" size={22} />
               <span className="font-bold text-base tracking-tight">{item.label}</span>
               {currentMode === item.mode && <ChevronRight className="ml-auto opacity-50" size={18} />}
             </button>
           ))}
         </nav>
 
-        <div className="p-8 border-t border-slate-800 bg-slate-950/30">
+        <div className="p-8 border-t border-slate-800 bg-[#081021]/30">
           <button 
             className="w-full py-5 px-6 rounded-2xl bg-slate-800/30 text-slate-600 hover:bg-rose-600 hover:text-white transition-all text-[10px] font-black uppercase tracking-[0.4em] flex items-center justify-center gap-4"
           >
