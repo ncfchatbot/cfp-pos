@@ -4,7 +4,7 @@ import {
   Plus, Minus, Trash2, Edit, LayoutDashboard, Settings, 
   Package, ClipboardList, BarChart3, Tag, X, Search,
   ShoppingCart, Coffee, TrendingUp, CheckCircle2, Save, Send, Bot, 
-  User, Download, Upload, AlertCircle, FileText, Smartphone, Truck, CreditCard, Building2, MapPin, Image as ImageIcon, FileUp, FileDown, ShieldAlert, Wifi, WifiOff, DollarSign, PieChart, ArrowRight
+  User, Download, Upload, AlertCircle, FileText, Smartphone, Truck, CreditCard, Building2, MapPin, Image as ImageIcon, FileUp, FileDown, ShieldAlert, Wifi, WifiOff, DollarSign, PieChart, ArrowRight, BarChart2, Users
 } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import { AppMode, Product, CartItem, SaleRecord, StoreProfile, Language, Promotion, PromoTier, Role, Message, LogisticsProvider, OrderStatus, PaymentMethod } from './types';
@@ -129,7 +129,7 @@ const App: React.FC = () => {
   };
 
   const exportRawData = () => {
-    // จัดหัวตารางใหม่ให้ไม่เพี้ยน
+    // แก้ไขคอลัมน์ CSV ให้ถูกต้องตามลำดับความเป็นจริง
     const headers = ["OrderID", "Date", "Customer", "Phone", "Address", "Payment", "Status", "Item", "Qty", "Cost/Unit", "Price/Unit", "ItemTotal", "BillTotal"];
     const rows = recentSales.flatMap(s => 
       s.items.map(i => {
@@ -138,8 +138,8 @@ const App: React.FC = () => {
         const pricePerUnit = Number(i.price || 0);
         const itemTotal = pricePerUnit * i.quantity;
         return [
-          s.id, s.date, s.customerName || "-", s.customerPhone || "-", `"${(s.customerAddress || "-").replace(/"/g, '""')}"`,
-          s.paymentMethod, s.status, i.name, i.quantity, costPerUnit, pricePerUnit, itemTotal, s.total
+          s.id, s.date, (s.customerName || "-").replace(/,/g, ''), s.customerPhone || "-", `"${(s.customerAddress || "-").replace(/"/g, '""')}"`,
+          s.paymentMethod, s.status, i.name.replace(/,/g, ''), i.quantity, costPerUnit, pricePerUnit, itemTotal, s.total
         ]
       })
     );
@@ -163,7 +163,8 @@ const App: React.FC = () => {
   const reportStats = useMemo(() => {
     const validSales = recentSales.filter(s => s.status !== 'Cancelled');
     const totalRevenue = validSales.reduce((a, b) => a + Number(b.total || 0), 0);
-    // Fix NaN: Ensure we cast to Number and check for non-number values
+    
+    // Fix Stock Asset calculation
     const stockValue = products.reduce((a, b) => {
        const cost = Number(b.cost);
        const stock = Number(b.stock);
@@ -177,15 +178,32 @@ const App: React.FC = () => {
         return itemAcc + (cost * item.quantity);
       }, 0);
     }, 0);
+
+    // กราฟรายเดือน (Mock logic: ดึงจาก string date "12/20/2025")
+    const monthlyData: Record<string, number> = {};
+    validSales.forEach(s => {
+      const monthStr = s.date.split('/')[0] + '/' + s.date.split('/')[2].split(' ')[0];
+      monthlyData[monthStr] = (monthlyData[monthStr] || 0) + Number(s.total);
+    });
     
+    // Top 10 SKUs
     const productCounts: Record<string, {name: string, qty: number}> = {};
     validSales.forEach(s => s.items.forEach(i => {
       if (!productCounts[i.id]) productCounts[i.id] = {name: i.name, qty: 0};
       productCounts[i.id].qty += i.quantity;
     }));
-    const topProducts = Object.values(productCounts).sort((a,b) => b.qty - a.qty).slice(0, 5);
+    const topProducts = Object.values(productCounts).sort((a,b) => b.qty - a.qty).slice(0, 10);
 
-    return { totalRevenue, totalCost, profit: totalRevenue - totalCost, stockValue, topProducts };
+    // Top 10 Customers
+    const customerCounts: Record<string, {name: string, total: number}> = {};
+    validSales.forEach(s => {
+      const cName = s.customerName || "Anonymous";
+      if (!customerCounts[cName]) customerCounts[cName] = {name: cName, total: 0};
+      customerCounts[cName].total += Number(s.total);
+    });
+    const topCustomers = Object.values(customerCounts).sort((a,b) => b.total - a.total).slice(0, 10);
+
+    return { totalRevenue, totalCost, profit: totalRevenue - totalCost, stockValue, topProducts, topCustomers, monthlyData };
   }, [recentSales, products]);
 
   return (
@@ -310,6 +328,32 @@ const App: React.FC = () => {
               </div>
             )}
 
+            {mode === AppMode.PROMOTIONS && (
+              <div className="space-y-6 animate-in slide-in-from-bottom-5">
+                <div className="flex justify-between items-center">
+                    <h2 className="text-2xl font-black text-slate-800 flex items-center gap-3"><Tag className="text-sky-500"/> {t.menu_promotions}</h2>
+                    <button onClick={()=>{setEditingPromo(null); setPromoSkusInput(''); setIsPromoModalOpen(true);}} className="bg-sky-600 text-white px-8 py-4 rounded-2xl font-black shadow-xl hover:bg-sky-700 transition-all flex items-center gap-2">
+                       <Plus size={20}/> {t.promo_add}
+                    </button>
+                 </div>
+                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {promotions.map(promo => (
+                      <div key={promo.id} className="bg-white p-8 rounded-[2.5rem] border shadow-sm relative group hover:border-sky-500 transition-all">
+                          <button onClick={async () => { if(confirm('Delete?')) await deleteDoc(doc(db, 'promotions', promo.id)); }} className="absolute top-6 right-6 p-2 text-slate-200 hover:text-rose-500"><Trash2 size={18}/></button>
+                          <h4 className="font-black text-slate-800 mb-2">{promo.name}</h4>
+                          <div className="flex flex-wrap gap-1 mb-6">
+                            {promo.targetProductIds.map(id => {
+                              const p = products.find(x=>x.id===id);
+                              return p ? <span key={id} className="text-[10px] px-2 py-1 bg-sky-50 text-sky-600 rounded font-bold">#{p.code}</span> : null;
+                            })}
+                          </div>
+                          <button onClick={()=>{setEditingPromo(promo); setPromoSkusInput(promo.targetProductIds.map(id=>products.find(x=>x.id===id)?.code).join(', ')); setIsPromoModalOpen(true);}} className="w-full py-4 bg-slate-50 rounded-2xl text-[10px] font-black text-slate-500 uppercase tracking-widest hover:bg-sky-600 hover:text-white transition-all">Edit</button>
+                      </div>
+                    ))}
+                 </div>
+              </div>
+            )}
+
             {mode === AppMode.REPORTS && (
               <div className="space-y-8 animate-in fade-in">
                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -326,6 +370,62 @@ const App: React.FC = () => {
                        <h3 className="text-4xl font-black text-slate-800">{formatMoney(reportStats.stockValue)}</h3>
                     </Card>
                  </div>
+
+                 {/* กราฟรายเดือน */}
+                 <Card>
+                    <h4 className="text-sm font-black text-slate-800 uppercase tracking-widest mb-8 flex items-center gap-2"><BarChart2 size={18} className="text-sky-500"/> Monthly Sales Performance</h4>
+                    <div className="flex items-end gap-2 h-40">
+                      {Object.entries(reportStats.monthlyData).map(([month, val], i) => {
+                        // Fix: Explicitly cast 'unknown' values and Object.values to 'number' types to resolve errors on lines 379, 380, and 383.
+                        const allValues = Object.values(reportStats.monthlyData) as number[];
+                        const maxVal = Math.max(...allValues, 1);
+                        const currentVal = val as number;
+                        const height = (currentVal / maxVal) * 100;
+                        return (
+                          <div key={i} className="flex-1 flex flex-col items-center gap-2">
+                             <div className="text-[8px] font-black text-slate-400">{formatMoney(currentVal)}</div>
+                             <div className="w-full bg-sky-500 rounded-t-xl transition-all duration-1000" style={{ height: `${height}%` }}></div>
+                             <div className="text-[10px] font-black text-slate-800">{month}</div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                 </Card>
+
+                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    {/* Top 10 SKUs */}
+                    <Card>
+                        <h4 className="text-sm font-black text-slate-800 uppercase tracking-widest mb-8 flex items-center gap-2"><PieChart size={18} className="text-sky-500"/> TOP 10 BEST SELLERS</h4>
+                        <div className="space-y-4">
+                          {reportStats.topProducts.map((p, idx) => (
+                             <div key={idx} className="flex justify-between items-center text-sm border-b border-slate-50 pb-2">
+                               <div className="flex items-center gap-3">
+                                  <span className="w-5 h-5 bg-slate-100 rounded text-[10px] flex items-center justify-center font-black text-slate-400">{idx+1}</span>
+                                  <span className="font-bold text-slate-700">{p.name}</span>
+                               </div>
+                               <span className="font-black text-sky-600">{p.qty} Units</span>
+                             </div>
+                          ))}
+                        </div>
+                    </Card>
+
+                    {/* Top 10 Customers */}
+                    <Card>
+                        <h4 className="text-sm font-black text-slate-800 uppercase tracking-widest mb-8 flex items-center gap-2"><Users size={18} className="text-sky-500"/> TOP 10 VALUABLE CUSTOMERS</h4>
+                        <div className="space-y-4">
+                          {reportStats.topCustomers.map((c, idx) => (
+                             <div key={idx} className="flex justify-between items-center text-sm border-b border-slate-50 pb-2">
+                               <div className="flex items-center gap-3">
+                                  <span className="w-5 h-5 bg-slate-100 rounded text-[10px] flex items-center justify-center font-black text-slate-400">{idx+1}</span>
+                                  <span className="font-bold text-slate-700">{c.name}</span>
+                               </div>
+                               <span className="font-black text-emerald-600">{formatMoney(c.total)}</span>
+                             </div>
+                          ))}
+                        </div>
+                    </Card>
+                 </div>
+
                  <div className="flex justify-end">
                     <button onClick={exportRawData} className="bg-emerald-600 text-white px-8 py-4 rounded-2xl font-black flex items-center gap-2 hover:bg-emerald-700 transition-all shadow-xl">
                        <FileDown size={20}/> {t.report_export_raw}
@@ -356,13 +456,6 @@ const App: React.FC = () => {
                     <button onClick={()=>{localStorage.setItem('pos_profile', JSON.stringify(storeProfile)); alert('Saved');}} className="w-full py-5 bg-sky-600 text-white rounded-2xl font-black uppercase shadow-xl hover:bg-sky-700 active:scale-95 transition-all">Save Changes</button>
                   </div>
                 </Card>
-              </div>
-            )}
-
-            {/* AI Assistant View (Not changed but kept for structure) */}
-            {mode === AppMode.AI && (
-              <div className="flex flex-col h-[calc(100vh-160px)] animate-in zoom-in-95">
-                {/* AI View content */}
               </div>
             )}
           </div>
@@ -458,21 +551,22 @@ const App: React.FC = () => {
                 await setDoc(doc(db, 'promotions', promo.id), promo);
                 setIsPromoModalOpen(false);
              }} className="space-y-6">
-                <div><label className="text-[10px] font-black text-slate-400 uppercase ml-1">Promotion Name</label><input name="name" required defaultValue={editingPromo?.name} className="w-full p-4 bg-slate-50 border rounded-2xl font-bold" /></div>
+                <div><label className="text-[10px] font-black text-slate-400 uppercase ml-1">Promotion Name</label><input name="name" required defaultValue={editingPromo?.name} className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none" /></div>
                 <div>
                    <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Apply to SKUs (Separate by commas)</label>
-                   <textarea value={promoSkusInput} onChange={e=>setPromoSkusInput(e.target.value)} placeholder={t.promo_sku_placeholder} className="w-full p-4 bg-slate-50 border rounded-2xl font-bold h-24" />
+                   <textarea value={promoSkusInput} onChange={e=>setPromoSkusInput(e.target.value)} placeholder={t.promo_sku_placeholder} className="w-full p-4 bg-slate-50 border rounded-2xl font-bold h-24 outline-none" />
+                   <p className="text-[10px] text-slate-400 mt-2 italic font-bold">Paste SKUs here: e.g. 001, 002, 005</p>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   {Array.from({length: 7}).map((_, i) => (
-                    <div key={i} className="flex gap-2 items-center bg-slate-50 p-3 rounded-2xl">
-                      <input name={`qty_${i+1}`} type="number" placeholder="Qty" defaultValue={editingPromo?.tiers?.[i]?.minQty} className="w-16 p-2 bg-white border rounded text-center font-bold" />
+                    <div key={i} className="flex gap-2 items-center bg-slate-50 p-3 rounded-2xl border border-slate-100">
+                      <input name={`qty_${i+1}`} type="number" placeholder="Qty" defaultValue={editingPromo?.tiers?.[i]?.minQty} className="w-16 p-2 bg-white border rounded text-center font-bold outline-none" />
                       <ArrowRight size={14} className="text-slate-300"/>
-                      <input name={`price_${i+1}`} type="number" placeholder="Price" defaultValue={editingPromo?.tiers?.[i]?.unitPrice} className="flex-1 p-2 bg-white border rounded font-black text-sky-600 text-center" />
+                      <input name={`price_${i+1}`} type="number" placeholder="Price" defaultValue={editingPromo?.tiers?.[i]?.unitPrice} className="flex-1 p-2 bg-white border rounded font-black text-sky-600 text-center outline-none" />
                     </div>
                   ))}
                 </div>
-                <button type="submit" className="w-full py-5 bg-sky-600 text-white rounded-2xl font-black shadow-xl">SAVE PROMOTION</button>
+                <button type="submit" className="w-full py-5 bg-sky-600 text-white rounded-2xl font-black shadow-xl active:scale-95 transition-all">SAVE PROMOTION</button>
              </form>
           </Card>
         </div>
@@ -503,7 +597,7 @@ const App: React.FC = () => {
                     </div>
                     <label className="absolute bottom-0 right-0 p-3 bg-sky-600 text-white rounded-2xl shadow-lg cursor-pointer hover:bg-sky-700">
                        <Upload size={18}/>
-                       <input type="file" className="hidden" accept="image/*" onChange={e => handleImageUpload(e, (url) => setEditingProduct(prev => prev ? {...prev, imageUrl: url} : null))} />
+                       <input type="file" className="hidden" accept="image/*" onChange={e => handleImageUpload(e, (url) => setEditingProduct(prev => prev ? {...prev, imageUrl: url} : {id: '', name: '', code: '', price: 0, cost: 0, category: '', stock: 0, color: 'bg-sky-500', imageUrl: url}))} />
                     </label>
                   </div>
                 </div>
