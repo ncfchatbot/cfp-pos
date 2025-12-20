@@ -4,7 +4,7 @@ import {
   Plus, Minus, Trash2, Edit, LayoutDashboard, Settings, 
   Package, ClipboardList, BarChart3, Tag, X, Search,
   ShoppingCart, Coffee, TrendingUp, CheckCircle2, Save, Send, Bot, 
-  User, Download, Upload, AlertCircle, FileText, Smartphone, Truck, CreditCard, Building2, MapPin, Image as ImageIcon, FileUp, FileDown
+  User, Download, Upload, AlertCircle, FileText, Smartphone, Truck, CreditCard, Building2, MapPin, Image as ImageIcon, FileUp, FileDown, ShieldAlert, Wifi, WifiOff
 } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import { AppMode, Product, CartItem, SaleRecord, StoreProfile, Language, Promotion, PromoTier, Role, Message, LogisticsProvider, OrderStatus, PaymentMethod } from './types';
@@ -124,7 +124,7 @@ const App: React.FC = () => {
   const downloadTemplate = () => {
     const headers = "name,code,price,cost,stock,category";
     const example = "Espresso Coffee,E001,25000,15000,100,Coffee\nLatte Art,L002,30000,18000,50,Coffee";
-    const csvContent = "\ufeff" + headers + "\n" + example; // Added BOM for Excel UTF-8
+    const csvContent = "\ufeff" + headers + "\n" + example;
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
@@ -144,7 +144,6 @@ const App: React.FC = () => {
     reader.onload = async (event) => {
       let content = event.target?.result as string;
       try {
-        // Handle UTF-8 BOM from Excel
         if (content.startsWith('\ufeff')) {
           content = content.substring(1);
         }
@@ -160,17 +159,14 @@ const App: React.FC = () => {
             return;
           }
 
-          // Detect delimiter: comma or semicolon
           const firstLine = lines[0];
           const delimiter = firstLine.includes(';') && !firstLine.includes(',') ? ';' : ',';
-          
           const headers = firstLine.split(delimiter).map(h => h.trim().toLowerCase());
           
           for (let i = 1; i < lines.length; i++) {
             const values = lines[i].split(delimiter);
             const p: any = {};
             headers.forEach((h, idx) => {
-              // Sanitize value: trim and remove surrounding quotes
               const rawVal = values[idx]?.trim() || '';
               p[h] = rawVal.replace(/^["']|["']$/g, '');
             });
@@ -185,8 +181,6 @@ const App: React.FC = () => {
             if (!name) continue; 
 
             const id = p.id || uuidv4();
-            
-            // Safe number parsing (removes commas and non-numeric characters except dot)
             const parseNum = (v: any) => {
               if (v === undefined || v === null) return 0;
               const cleaned = String(v).replace(/[^0-9.]/g, '');
@@ -213,9 +207,13 @@ const App: React.FC = () => {
         } else {
           alert('Invalid file format. Please use the provided template.');
         }
-      } catch (err) {
+      } catch (err: any) {
         console.error("Import Error:", err);
-        alert('Error processing file: ' + (err instanceof Error ? err.message : 'Unknown error'));
+        if (err.message && err.message.toLowerCase().includes('permission')) {
+          alert('🔥 ERROR: Missing Permissions!\n\nโปรดเข้าไปที่ Firebase Console และตั้งค่า Firestore Rules ให้เป็น Public (allow read, write: if true;) เพื่ออนุญาตการนำเข้าข้อมูล');
+        } else {
+          alert('Error processing file: ' + (err instanceof Error ? err.message : 'Unknown error'));
+        }
       }
     };
     reader.readAsText(file);
@@ -408,6 +406,21 @@ const App: React.FC = () => {
                  <Card>
                     <h4 className="font-black text-slate-800 uppercase tracking-widest text-xs mb-8 flex items-center gap-2 border-b pb-4"><Settings size={16}/> {t.menu_settings}</h4>
                     <div className="space-y-5">
+                       {/* Connection Status Panel */}
+                       <div className={`p-4 rounded-2xl border flex items-center gap-4 ${db ? 'bg-emerald-50 border-emerald-100' : 'bg-rose-50 border-rose-100'}`}>
+                          <div className={`p-3 rounded-full ${db ? 'bg-emerald-500 text-white' : 'bg-rose-500 text-white'}`}>
+                             {db ? <Wifi size={20}/> : <WifiOff size={20}/>}
+                          </div>
+                          <div className="flex-1">
+                             <p className={`text-[10px] font-black uppercase tracking-widest ${db ? 'text-emerald-600' : 'text-rose-600'}`}>
+                                Database Status: {db ? 'CONNECTED' : 'NOT CONNECTED'}
+                             </p>
+                             <p className="text-[9px] font-bold text-slate-400">
+                                {db ? 'Firestore is active and listening.' : 'Please check your FIREBASE_CONFIG env.'}
+                             </p>
+                          </div>
+                       </div>
+
                        <div className="flex items-center gap-6 mb-4">
                           <div className="w-24 h-24 bg-slate-50 rounded-[2.5rem] border border-slate-200 overflow-hidden flex items-center justify-center text-slate-300 shadow-inner">
                              {storeProfile.logoUrl ? <img src={storeProfile.logoUrl} className="w-full h-full object-cover" /> : <ImageIcon size={40}/>}
@@ -449,6 +462,17 @@ const App: React.FC = () => {
                              <FileDown size={16}/> {t.setting_download_template}
                           </button>
                        </div>
+
+                       <div className="bg-amber-50 border border-amber-100 p-6 rounded-[2rem] flex gap-4">
+                          <ShieldAlert className="text-amber-600 shrink-0" size={24}/>
+                          <div>
+                             <h6 className="text-[10px] font-black uppercase text-amber-800 tracking-wider mb-1">Firestore Rules Help</h6>
+                             <p className="text-[9px] font-bold text-amber-700 leading-relaxed">
+                               หากพบข้อผิดพลาด "Insufficient Permissions" โปรดตรวจสอบที่หน้า Firebase Console -> Firestore -> Rules แล้วตั้งค่าให้ <code className="bg-white/50 px-1">allow read, write: if true;</code> เพื่ออนุญาตให้แอปเขียนข้อมูลได้ครับ
+                             </p>
+                          </div>
+                       </div>
+
                        <div className="bg-slate-50 p-6 rounded-2xl space-y-3">
                           <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest leading-none">CSV Header Format:</p>
                           <code className="block text-[10px] bg-white p-3 rounded-lg border font-mono text-slate-600 truncate">name, code, price, cost, stock, category</code>
