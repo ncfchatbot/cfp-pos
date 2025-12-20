@@ -21,8 +21,7 @@ export enum AppMode {
   STOCK = 'stock',
   REPORTS = 'reports',
   PROMOTIONS = 'promotions',
-  SETTINGS = 'settings',
-  AI = 'ai'
+  SETTINGS = 'settings'
 }
 
 export interface Product {
@@ -79,7 +78,7 @@ export interface PromoTier {
 export interface Promotion {
   id: string;
   name: string;
-  targetProductIds: string[]; // เปลี่ยนจาก targetProductId เป็น array
+  targetProductIds: string[];
   isActive: boolean;
   tiers: PromoTier[];
 }
