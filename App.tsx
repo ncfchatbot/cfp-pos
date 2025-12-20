@@ -4,7 +4,7 @@ import {
   Plus, Minus, Trash2, Edit, LayoutDashboard, Settings, 
   Package, ClipboardList, BarChart3, Tag, X, Search,
   ShoppingCart, Coffee, TrendingUp, CheckCircle2, Save, Send, Bot, 
-  User, Download, Upload, AlertCircle, FileText, Smartphone, Truck, CreditCard, Building2, MapPin, Image as ImageIcon
+  User, Download, Upload, AlertCircle, FileText, Smartphone, Truck, CreditCard, Building2, MapPin, Image as ImageIcon, FileUp
 } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import { AppMode, Product, CartItem, SaleRecord, StoreProfile, Language, Promotion, PromoTier, Role, Message, LogisticsProvider, OrderStatus, PaymentMethod } from './types';
@@ -40,7 +40,6 @@ const App: React.FC = () => {
   const [paymentStatus, setPaymentStatus] = useState<OrderStatus>('Paid');
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('Transfer');
   const [skuSearch, setSkuSearch] = useState('');
-  const [importJson, setImportJson] = useState('');
 
   // Modals
   const [isBillModalOpen, setIsBillModalOpen] = useState(false);
@@ -51,7 +50,7 @@ const App: React.FC = () => {
 
   const t = translations[language];
 
-  // Persistence for Profile & Language
+  // Persistence
   useEffect(() => {
     localStorage.setItem('pos_language', language);
   }, [language]);
@@ -121,36 +120,70 @@ const App: React.FC = () => {
     setCustomerName(''); setCustomerPhone(''); setCustomerAddress(''); setShippingBranch('');
   };
 
-  const handleBulkImport = async () => {
-    try {
-      const data = JSON.parse(importJson);
-      if (Array.isArray(data) && db) {
-        for (const p of data) {
-          const id = p.id || uuidv4();
-          await setDoc(doc(db, 'products', id), { 
-            id, 
-            code: p.code || 'SKU-' + id.slice(0, 5),
-            name: p.name || 'Unknown Item',
-            price: Number(p.price) || 0,
-            cost: Number(p.cost) || 0,
-            stock: Number(p.stock) || 0,
-            category: p.category || 'General',
-            color: p.color || 'bg-slate-500'
-          });
+  // --- NEW: BULK FILE IMPORT (CSV/JSON) ---
+  const handleBulkFileImport = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      const content = event.target?.result as string;
+      try {
+        let importedProducts: any[] = [];
+        
+        if (file.name.endsWith('.json')) {
+          importedProducts = JSON.parse(content);
+        } else if (file.name.endsWith('.csv')) {
+          const lines = content.split('\n');
+          const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+          
+          for (let i = 1; i < lines.length; i++) {
+            if (!lines[i].trim()) continue;
+            const values = lines[i].split(',');
+            const p: any = {};
+            headers.forEach((h, idx) => {
+              p[h] = values[idx]?.trim();
+            });
+            importedProducts.push(p);
+          }
         }
-        alert('Import Successful!');
-        setImportJson('');
-      } else {
-        alert('Invalid JSON Format. Expected an array of products.');
+
+        if (Array.isArray(importedProducts) && db) {
+          let count = 0;
+          for (const p of importedProducts) {
+            const id = p.id || uuidv4();
+            await setDoc(doc(db, 'products', id), {
+              id,
+              code: p.code || 'SKU-' + id.slice(0, 5),
+              name: p.name || 'Untitled',
+              price: Number(p.price) || 0,
+              cost: Number(p.cost) || 0,
+              stock: Number(p.stock) || 0,
+              category: p.category || 'General',
+              color: p.color || 'bg-sky-500'
+            });
+            count++;
+          }
+          alert(`Successfully imported ${count} items!`);
+        } else {
+          alert('Invalid file format. Please use CSV or JSON array.');
+        }
+      } catch (err) {
+        console.error(err);
+        alert('Error processing file. Please check formatting.');
       }
-    } catch (e) {
-      alert('Error parsing JSON. Please check formatting.');
-    }
+    };
+    reader.readAsText(file);
+    e.target.value = ''; // Reset input
   };
 
   const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+      if (file.size > 1024 * 1024) { // Limit 1MB to keep Base64 manageable
+        alert('File size too large. Please use image under 1MB.');
+        return;
+      }
       const reader = new FileReader();
       reader.onloadend = () => {
         setStoreProfile(prev => ({ ...prev, logoUrl: reader.result as string }));
@@ -332,25 +365,37 @@ const App: React.FC = () => {
                           <div className="w-20 h-20 bg-slate-100 rounded-[2rem] border overflow-hidden flex items-center justify-center text-slate-300">
                              {storeProfile.logoUrl ? <img src={storeProfile.logoUrl} className="w-full h-full object-cover" /> : <ImageIcon size={30}/>}
                           </div>
-                          <div>
-                             <label className="px-6 py-3 bg-slate-900 text-white rounded-xl text-[10px] font-black uppercase cursor-pointer hover:bg-black transition-all">
+                          <div className="flex-1">
+                             <label className="inline-block px-8 py-4 bg-slate-900 text-white rounded-2xl text-xs font-black uppercase cursor-pointer hover:bg-black transition-all shadow-lg shadow-slate-900/10">
                                 {t.setting_logo_url}
                                 <input type="file" className="hidden" accept="image/*" onChange={handleLogoUpload} />
                              </label>
-                             <p className="text-[9px] text-slate-400 mt-2 font-bold uppercase">Upload store logo (Base64)</p>
+                             <p className="text-[9px] text-slate-400 mt-3 font-bold uppercase leading-relaxed tracking-wider">Supports PNG, JPG (Max 1MB)<br/>Saved locally in your browser.</p>
                           </div>
                        </div>
                        <div><label className="text-[10px] font-black text-slate-400 uppercase ml-1">{t.setting_shop_name}</label><input value={storeProfile.name} onChange={e=>setStoreProfile({...storeProfile, name: e.target.value})} className="w-full p-4 bg-slate-50 border rounded-xl font-bold focus:border-sky-500 outline-none" /></div>
-                       <div><label className="text-[10px] font-black text-slate-400 uppercase ml-1">{t.order_cust_addr}</label><textarea value={storeProfile.address} onChange={e=>setStoreProfile({...storeProfile, address: e.target.value})} className="w-full p-4 bg-slate-50 border rounded-xl font-bold h-24 focus:border-sky-500 outline-none" placeholder="Store Address..." /></div>
-                       <button onClick={()=>{localStorage.setItem('pos_profile', JSON.stringify(storeProfile)); alert('Settings Saved Locally');}} className="w-full py-4 bg-sky-600 text-white rounded-xl font-black uppercase text-xs tracking-widest flex items-center justify-center gap-2 shadow-lg shadow-sky-600/20"><Save size={16}/> {t.save}</button>
+                       <div><label className="text-[10px] font-black text-slate-400 uppercase ml-1">{t.setting_address}</label><textarea value={storeProfile.address} onChange={e=>setStoreProfile({...storeProfile, address: e.target.value})} className="w-full p-4 bg-slate-50 border rounded-xl font-bold h-24 focus:border-sky-500 outline-none" placeholder="Store Address..." /></div>
+                       <button onClick={()=>{localStorage.setItem('pos_profile', JSON.stringify(storeProfile)); alert('Settings Saved Locally');}} className="w-full py-5 bg-sky-600 text-white rounded-2xl font-black uppercase text-xs tracking-widest flex items-center justify-center gap-2 shadow-lg shadow-sky-600/20 active:scale-95 transition-all"><Save size={16}/> {t.save}</button>
                     </div>
                  </Card>
                  <Card>
-                    <h4 className="font-black text-slate-800 uppercase tracking-widest text-xs mb-8 flex items-center gap-2 border-b pb-4"><Download size={16}/> {t.setting_bulk}</h4>
-                    <div className="space-y-4">
-                       <p className="text-xs text-slate-500 font-bold">{t.setting_import_json}</p>
-                       <textarea value={importJson} onChange={e=>setImportJson(e.target.value)} placeholder='[{"name": "Espresso", "code": "E001", "price": 25000, "cost": 15000, "stock": 100}]' className="w-full p-4 bg-slate-50 border rounded-xl font-mono text-[10px] h-64 focus:border-sky-500 outline-none" />
-                       <button onClick={handleBulkImport} className="w-full py-4 bg-slate-900 text-white rounded-xl font-black uppercase text-xs tracking-widest flex items-center justify-center gap-2"><Upload size={16}/> Import Now</button>
+                    <h4 className="font-black text-slate-800 uppercase tracking-widest text-xs mb-8 flex items-center gap-2 border-b pb-4"><FileUp size={16}/> {t.setting_bulk}</h4>
+                    <div className="space-y-6">
+                       <div className="p-10 border-2 border-dashed border-slate-200 rounded-[2rem] flex flex-col items-center justify-center text-center group hover:border-sky-400 transition-colors">
+                          <div className="p-5 bg-sky-50 text-sky-500 rounded-full mb-4 group-hover:scale-110 transition-transform"><FileUp size={32}/></div>
+                          <p className="text-sm font-black text-slate-800 mb-1">Upload Bulk File</p>
+                          <p className="text-[10px] font-bold text-slate-400 uppercase mb-6">Supports CSV or JSON formats</p>
+                          
+                          <label className="px-10 py-4 bg-slate-900 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest cursor-pointer hover:bg-black transition-all">
+                             {t.setting_bulk}
+                             <input type="file" className="hidden" accept=".csv,.json" onChange={handleBulkFileImport} />
+                          </label>
+                       </div>
+                       <div className="bg-slate-50 p-6 rounded-2xl space-y-3">
+                          <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest leading-none">CSV Header Format:</p>
+                          <code className="block text-[10px] bg-white p-3 rounded-lg border font-mono text-slate-600 truncate">name, code, price, cost, stock, category, color</code>
+                          <p className="text-[9px] font-bold text-slate-400 italic leading-relaxed">* You can use Excel to save as CSV and upload here easily.</p>
+                       </div>
                     </div>
                  </Card>
               </div>
