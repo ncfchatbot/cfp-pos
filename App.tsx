@@ -124,10 +124,11 @@ const App: React.FC = () => {
   const downloadTemplate = () => {
     const headers = "name,code,price,cost,stock,category";
     const example = "Espresso Coffee,E001,25000,15000,100,Coffee\nLatte Art,L002,30000,18000,50,Coffee";
-    const csvContent = "data:text/csv;charset=utf-8," + headers + "\n" + example;
-    const encodedUri = encodeURI(csvContent);
+    const csvContent = "\ufeff" + headers + "\n" + example; // Added BOM for Excel UTF-8
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
+    link.setAttribute("href", url);
     link.setAttribute("download", "coffee_please_product_template.csv");
     document.body.appendChild(link);
     link.click();
@@ -141,23 +142,37 @@ const App: React.FC = () => {
 
     const reader = new FileReader();
     reader.onload = async (event) => {
-      const content = event.target?.result as string;
+      let content = event.target?.result as string;
       try {
+        // Handle UTF-8 BOM from Excel
+        if (content.startsWith('\ufeff')) {
+          content = content.substring(1);
+        }
+
         let importedProducts: any[] = [];
         
-        if (file.name.endsWith('.json')) {
+        if (file.name.toLowerCase().endsWith('.json')) {
           importedProducts = JSON.parse(content);
-        } else if (file.name.endsWith('.csv')) {
-          const lines = content.split(/\r?\n/);
-          if (lines.length < 2) return;
-          const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+        } else if (file.name.toLowerCase().endsWith('.csv')) {
+          const lines = content.split(/\r?\n/).filter(l => l.trim() !== '');
+          if (lines.length < 2) {
+            alert('File appears to be empty or missing data rows.');
+            return;
+          }
+
+          // Detect delimiter: comma or semicolon
+          const firstLine = lines[0];
+          const delimiter = firstLine.includes(';') && !firstLine.includes(',') ? ';' : ',';
+          
+          const headers = firstLine.split(delimiter).map(h => h.trim().toLowerCase());
           
           for (let i = 1; i < lines.length; i++) {
-            if (!lines[i].trim()) continue;
-            const values = lines[i].split(',');
+            const values = lines[i].split(delimiter);
             const p: any = {};
             headers.forEach((h, idx) => {
-              p[h] = values[idx]?.trim();
+              // Sanitize value: trim and remove surrounding quotes
+              const rawVal = values[idx]?.trim() || '';
+              p[h] = rawVal.replace(/^["']|["']$/g, '');
             });
             importedProducts.push(p);
           }
@@ -166,31 +181,45 @@ const App: React.FC = () => {
         if (Array.isArray(importedProducts) && db) {
           let count = 0;
           for (const p of importedProducts) {
-            if (!p.name) continue; // Skip invalid entries
+            const name = p.name || p['item name'] || p['ชื่อสินค้า'];
+            if (!name) continue; 
+
             const id = p.id || uuidv4();
-            await setDoc(doc(db, 'products', id), {
+            
+            // Safe number parsing (removes commas and non-numeric characters except dot)
+            const parseNum = (v: any) => {
+              if (v === undefined || v === null) return 0;
+              const cleaned = String(v).replace(/[^0-9.]/g, '');
+              return Number(cleaned) || 0;
+            };
+
+            const productData = {
               id,
-              code: p.code || 'SKU-' + Math.random().toString(36).substr(2, 5).toUpperCase(),
-              name: p.name,
-              price: Number(p.price) || 0,
-              cost: Number(p.cost) || 0,
-              stock: Number(p.stock) || 0,
+              code: p.code || 'SKU-' + Math.random().toString(36).substring(2, 7).toUpperCase(),
+              name: String(name),
+              price: parseNum(p.price),
+              cost: parseNum(p.cost),
+              stock: parseNum(p.stock),
               category: p.category || 'General',
-              color: p.color || 'bg-sky-500' // Use default color if not provided
-            });
+              color: p.color || 'bg-sky-500'
+            };
+
+            await setDoc(doc(db, 'products', id), productData);
             count++;
           }
           alert(`Successfully imported ${count} items!`);
+        } else if (!db) {
+          alert('Database connection not available.');
         } else {
-          alert('Invalid file structure. Please use the downloaded template.');
+          alert('Invalid file format. Please use the provided template.');
         }
       } catch (err) {
-        console.error(err);
-        alert('Error processing file. Please check formatting and headers.');
+        console.error("Import Error:", err);
+        alert('Error processing file: ' + (err instanceof Error ? err.message : 'Unknown error'));
       }
     };
     reader.readAsText(file);
-    e.target.value = ''; // Reset input
+    e.target.value = ''; 
   };
 
   const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
