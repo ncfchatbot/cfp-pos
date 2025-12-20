@@ -189,13 +189,20 @@ const App: React.FC = () => {
   // --- PRINTING LOGIC ---
   const handlePrintStock = () => {
     setPrintType('stock');
-    setTimeout(() => { window.print(); setPrintType(null); }, 100);
+    // ให้เวลาระบบ Render DOM สำหรับพิมพ์ครู่หนึ่ง
+    setTimeout(() => { 
+      window.print(); 
+      setPrintType(null); 
+    }, 200);
   };
 
   const handlePrintBill = (order: SaleRecord) => {
     setActivePrintBill(order);
     setPrintType('bill');
-    setTimeout(() => { window.print(); setPrintType(null); }, 100);
+    setTimeout(() => { 
+      window.print(); 
+      setPrintType(null); 
+    }, 200);
   };
 
   const exportRawData = () => {
@@ -357,7 +364,7 @@ const App: React.FC = () => {
                           {recentSales.map(s => (
                             <tr key={s.id} className={`hover:bg-slate-50 ${s.status === 'Cancelled' ? 'opacity-40' : ''}`}>
                                <td className="px-6 py-4">
-                                 <div className="text-slate-800 truncate max-w-[150px]">#{s.id.slice(0,8)} | {s.customerName || '-'}</div>
+                                 <div className="text-slate-800 truncate max-w-[150px]">#{s.id.slice(0,8).toUpperCase()} | {s.customerName || '-'}</div>
                                  <div className="text-[9px] text-slate-300 font-medium">{s.date}</div>
                                </td>
                                <td className="px-4 py-4 text-center"><span className="px-2 py-0.5 bg-slate-100 rounded text-[8px] uppercase font-black">{s.paymentMethod}</span></td>
@@ -425,7 +432,8 @@ const App: React.FC = () => {
                  </div>
               </div>
             )}
-            {/* OTHER MODES REMAIN UNCHANGED */}
+            
+            {/* OTHER MODES */}
             {mode === AppMode.PROMOTIONS && <PromotionView promotions={promotions} products={products} setEditingPromo={setEditingPromo} setPromoSkusInput={setPromoSkusInput} setIsPromoModalOpen={setIsPromoModalOpen} formatMoney={formatMoney} deleteDoc={deleteDoc} db={db} />}
             {mode === AppMode.REPORTS && <ReportsView reportStats={reportStats} formatMoney={formatMoney} exportRawData={exportRawData} />}
             {mode === AppMode.AI && <AIView messages={messages} chatInput={chatInput} setChatInput={setChatInput} handleSendMessage={handleSendMessage} isTyping={isTyping} chatEndRef={chatEndRef} />}
@@ -435,118 +443,152 @@ const App: React.FC = () => {
       </main>
 
       {/* --- PRINT AREA (ONLY VISIBLE ON PRINT) --- */}
-      <div className="print-area">
+      <div className="print-area hidden">
         {printType === 'stock' && (
-          <div className="p-10">
+          <div className="p-10 bg-white">
             <div className="text-center mb-10 border-b-2 border-black pb-6">
-              <h1 className="text-3xl font-black uppercase">{storeProfile.name}</h1>
-              <h2 className="text-xl font-bold mt-2 tracking-widest uppercase">ใบกวดเช็คสต็อกสินค้า (STOCK AUDIT)</h2>
-              <p className="text-xs mt-2">วันที่พิมพ์: {new Date().toLocaleString('th-TH')}</p>
+              <h1 className="text-3xl font-black uppercase mb-2">{storeProfile.name}</h1>
+              <h2 className="text-xl font-bold tracking-widest uppercase">ใบตรวจสอบสต็อกสินค้า (STOCK AUDIT SHEET)</h2>
+              <div className="flex justify-between items-end mt-4 text-[10px] font-bold">
+                 <p>พิมพ์เมื่อ: {new Date().toLocaleString('th-TH')}</p>
+                 <p>จำนวนรายการทั้งหมด: {products.length} รายการ</p>
+              </div>
             </div>
-            <table className="w-full border-collapse">
+            <table className="w-full border-collapse border border-black">
               <thead>
                 <tr className="bg-slate-100">
-                  <th className="p-2 text-xs font-black w-10">#</th>
-                  <th className="p-2 text-xs font-black text-left w-24">รหัสสินค้า</th>
-                  <th className="p-2 text-xs font-black text-left">รายการ</th>
-                  <th className="p-2 text-xs font-black w-20">ระบบ</th>
-                  <th className="p-2 text-xs font-black w-24">นับจริง</th>
-                  <th className="p-2 text-xs font-black w-20">ส่วนต่าง</th>
+                  <th className="p-2 text-[10px] font-black w-10 border border-black text-center">#</th>
+                  <th className="p-2 text-[10px] font-black text-left w-32 border border-black">รหัสสินค้า (SKU)</th>
+                  <th className="p-2 text-[10px] font-black text-left border border-black">รายการสินค้า</th>
+                  <th className="p-2 text-[10px] font-black w-24 border border-black text-center">ในระบบ</th>
+                  <th className="p-2 text-[10px] font-black w-24 border border-black text-center">นับได้จริง</th>
+                  <th className="p-2 text-[10px] font-black w-24 border border-black text-center">ส่วนต่าง</th>
                 </tr>
               </thead>
               <tbody>
-                {products.map((p, idx) => (
+                {products.length > 0 ? products.map((p, idx) => (
                   <tr key={p.id}>
-                    <td className="p-2 text-xs text-center">{idx + 1}</td>
-                    <td className="p-2 text-xs font-bold">{p.code}</td>
-                    <td className="p-2 text-xs">{p.name}</td>
-                    <td className="p-2 text-xs text-center font-black">{p.stock}</td>
-                    <td className="p-2 border border-black"></td>
-                    <td className="p-2 border border-black"></td>
+                    <td className="p-2 text-[10px] text-center border border-black">{idx + 1}</td>
+                    <td className="p-2 text-[10px] font-bold border border-black">{p.code}</td>
+                    <td className="p-2 text-[10px] border border-black truncate max-w-[200px]">{p.name}</td>
+                    <td className="p-2 text-[10px] text-center font-black border border-black">{p.stock}</td>
+                    <td className="p-2 border border-black text-center h-8"></td>
+                    <td className="p-2 border border-black text-center h-8"></td>
                   </tr>
-                ))}
+                )) : (
+                  <tr><td colSpan={6} className="p-10 text-center border border-black">ไม่พบข้อมูลสินค้า</td></tr>
+                )}
               </tbody>
             </table>
-            <div className="mt-20 grid grid-cols-2 gap-20">
-               <div className="text-center space-y-12"><div className="border-b border-black w-full"></div><p className="text-xs font-bold">ลายเซ็นผู้นับสต็อก</p></div>
-               <div className="text-center space-y-12"><div className="border-b border-black w-full"></div><p className="text-xs font-bold">ลายเซ็นผู้จัดการ</p></div>
+            <div className="mt-24 grid grid-cols-2 gap-20">
+               <div className="text-center space-y-16">
+                  <div className="border-b border-black w-full mx-auto"></div>
+                  <p className="text-[10px] font-bold uppercase">เจ้าหน้าที่ผู้ตรวจนับสต็อก (Auditor Signature)</p>
+               </div>
+               <div className="text-center space-y-16">
+                  <div className="border-b border-black w-full mx-auto"></div>
+                  <p className="text-[10px] font-bold uppercase">ผู้จัดการร้าน / พยาน (Manager Signature)</p>
+               </div>
+            </div>
+            <div className="mt-10 text-[8px] text-slate-400 text-right italic">
+              * ข้อมูลในระบบ ณ เวลา {new Date().toLocaleTimeString()}
             </div>
           </div>
         )}
 
         {printType === 'bill' && activePrintBill && (
-          <div className="p-10">
+          <div className="p-10 bg-white">
             <div className="flex justify-between items-start border-b-2 border-black pb-8 mb-8">
-               <div className="flex items-center gap-4">
-                  {storeProfile.logoUrl && <img src={storeProfile.logoUrl} className="w-16 h-16 object-contain" />}
+               <div className="flex items-center gap-6">
+                  {storeProfile.logoUrl && <img src={storeProfile.logoUrl} className="w-20 h-20 object-contain" alt="logo" />}
                   <div>
-                    <h1 className="text-2xl font-black uppercase">{storeProfile.name}</h1>
-                    <p className="text-[10px] w-64">{storeProfile.address}</p>
-                    <p className="text-[10px]">โทร: {storeProfile.phone}</p>
+                    <h1 className="text-2xl font-black uppercase text-sky-700">{storeProfile.name}</h1>
+                    <p className="text-[10px] w-80 font-bold text-slate-600">ที่อยู่: {storeProfile.address || '-'}</p>
+                    <p className="text-[10px] font-bold">โทรศัพท์: {storeProfile.phone || '-'}</p>
                   </div>
                </div>
                <div className="text-right">
-                  <h2 className="text-3xl font-black uppercase text-slate-800">บิลขาย / ใบเสร็จ</h2>
-                  <p className="text-[10px] font-bold mt-1">เลขที่: #{activePrintBill.id.slice(0,8).toUpperCase()}</p>
-                  <p className="text-[10px]">วันที่: {activePrintBill.date}</p>
+                  <h2 className="text-3xl font-black uppercase text-slate-800 tracking-tighter">บิลขาย / ใบกำกับภาษี</h2>
+                  <p className="text-[10px] font-black mt-2">เลขที่บิล: <span className="text-sky-600">#{activePrintBill.id.slice(0,12).toUpperCase()}</span></p>
+                  <p className="text-[10px] font-bold">วันที่ออกบิล: {activePrintBill.date}</p>
                </div>
             </div>
 
-            <div className="mb-8 grid grid-cols-2 gap-10">
-               <div className="bg-slate-50 p-4 rounded-xl border">
-                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">ข้อมูลลูกค้า / Customer</p>
-                  <p className="text-xs font-black">{activePrintBill.customerName || 'เงินสด / Cash'}</p>
-                  <p className="text-[10px]">{activePrintBill.customerPhone || '-'}</p>
-                  <p className="text-[9px] mt-1 italic">{activePrintBill.customerAddress}</p>
+            <div className="mb-10 grid grid-cols-2 gap-10">
+               <div className="bg-slate-50 p-6 rounded-2xl border border-slate-200">
+                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2">ข้อมูลผู้ซื้อ / BILL TO</p>
+                  <p className="text-xs font-black text-slate-800 mb-1">{activePrintBill.customerName || 'ลูกค้าทั่วไป / Cash Customer'}</p>
+                  <p className="text-[10px] font-bold">เบอร์โทร: {activePrintBill.customerPhone || '-'}</p>
+                  <p className="text-[10px] mt-2 text-slate-500 italic leading-relaxed">{activePrintBill.customerAddress || 'ไม่ระบุที่อยู่'}</p>
                </div>
-               <div className="bg-slate-50 p-4 rounded-xl border">
-                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">การจัดส่ง & ชำระเงิน</p>
-                  <p className="text-xs font-black">ขนส่ง: {activePrintBill.shippingCarrier}</p>
-                  <p className="text-[10px]">ชำระโดย: {activePrintBill.paymentMethod}</p>
-                  <p className="text-[10px]">สถานะ: {activePrintBill.status}</p>
+               <div className="bg-slate-50 p-6 rounded-2xl border border-slate-200">
+                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2">การจัดส่ง & ชำระเงิน</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <p className="text-[10px] font-bold">ช่องทางขนส่ง:</p><p className="text-[10px] text-sky-600 font-black text-right">{activePrintBill.shippingCarrier}</p>
+                    <p className="text-[10px] font-bold">วิธีชำระเงิน:</p><p className="text-[10px] text-emerald-600 font-black text-right">{activePrintBill.paymentMethod}</p>
+                    <p className="text-[10px] font-bold">สถานะบิล:</p><p className="text-[10px] font-black text-right uppercase">{activePrintBill.status}</p>
+                  </div>
                </div>
             </div>
 
-            <table className="w-full border-collapse mb-8">
+            <table className="w-full border-collapse mb-10 overflow-hidden rounded-xl border border-black">
                <thead>
                   <tr className="bg-slate-900 text-white">
-                     <th className="p-3 text-left text-[10px] font-black w-10 uppercase">#</th>
-                     <th className="p-3 text-left text-[10px] font-black uppercase">รายการสินค้า</th>
-                     <th className="p-3 text-center text-[10px] font-black w-20 uppercase">จำนวน</th>
-                     <th className="p-3 text-right text-[10px] font-black w-32 uppercase">ราคา/หน่วย</th>
-                     <th className="p-3 text-right text-[10px] font-black w-32 uppercase">รวมเงิน</th>
+                     <th className="p-4 text-left text-[10px] font-black w-12 uppercase border border-black">#</th>
+                     <th className="p-4 text-left text-[10px] font-black uppercase border border-black">รายการสินค้า (PRODUCT DESCRIPTION)</th>
+                     <th className="p-4 text-center text-[10px] font-black w-24 uppercase border border-black">จำนวน</th>
+                     <th className="p-4 text-right text-[10px] font-black w-36 uppercase border border-black">ราคา/หน่วย</th>
+                     <th className="p-4 text-right text-[10px] font-black w-40 uppercase border border-black">รวมเงิน</th>
                   </tr>
                </thead>
                <tbody>
                   {activePrintBill.items.map((item, i) => (
-                    <tr key={i} className="border-b">
-                       <td className="p-3 text-[10px] text-center">{i+1}</td>
-                       <td className="p-3 text-[10px] font-bold">{item.name}</td>
-                       <td className="p-3 text-[10px] text-center">{item.quantity}</td>
-                       <td className="p-3 text-[10px] text-right">{formatMoney(item.price)}</td>
-                       <td className="p-3 text-[10px] text-right font-black">{formatMoney(item.price * item.quantity)}</td>
+                    <tr key={i} className="border-b border-black">
+                       <td className="p-4 text-[10px] text-center border-x border-black">{i+1}</td>
+                       <td className="p-4 text-[10px] font-black border-x border-black">{item.name}</td>
+                       <td className="p-4 text-[10px] text-center border-x border-black font-bold">{item.quantity}</td>
+                       <td className="p-4 text-[10px] text-right border-x border-black">{formatMoney(item.price)}</td>
+                       <td className="p-4 text-[10px] text-right font-black border-x border-black">{formatMoney(item.price * item.quantity)}</td>
+                    </tr>
+                  ))}
+                  {/* Fill empty rows to make it look professional */}
+                  {Array.from({length: Math.max(0, 5 - activePrintBill.items.length)}).map((_, idx) => (
+                    <tr key={`empty-${idx}`} className="border-b border-black h-12">
+                      <td className="border-x border-black"></td><td className="border-x border-black"></td><td className="border-x border-black"></td><td className="border-x border-black"></td><td className="border-x border-black"></td>
                     </tr>
                   ))}
                </tbody>
             </table>
 
-            <div className="flex justify-end">
-               <div className="w-80 space-y-2">
-                  <div className="flex justify-between text-xs"><span>ยอดรวมสินค้า</span><span>{formatMoney(activePrintBill.subtotal)}</span></div>
-                  <div className="flex justify-between text-xs text-rose-500 font-bold"><span>ส่วนลด</span><span>-{formatMoney(activePrintBill.discount)}</span></div>
-                  <div className="flex justify-between border-t-2 border-black pt-2"><span className="text-sm font-black uppercase">ยอดเงินสุทธิ</span><span className="text-xl font-black text-sky-600">{formatMoney(activePrintBill.total)}</span></div>
+            <div className="flex justify-end mb-10">
+               <div className="w-96 space-y-3 bg-slate-50 p-6 rounded-2xl border border-slate-300">
+                  <div className="flex justify-between text-xs font-bold"><span>รวมเงิน (SUBTOTAL)</span><span>{formatMoney(activePrintBill.subtotal)}</span></div>
+                  <div className="flex justify-between text-xs text-rose-500 font-black"><span>ส่วนลด (DISCOUNT)</span><span>-{formatMoney(activePrintBill.discount)}</span></div>
+                  <div className="flex justify-between border-t-2 border-black pt-4">
+                    <span className="text-sm font-black uppercase">ยอดชำระสุทธิ (GRAND TOTAL)</span>
+                    <span className="text-2xl font-black text-sky-600">{formatMoney(activePrintBill.total)}</span>
+                  </div>
                </div>
             </div>
 
             <div className="mt-24 grid grid-cols-2 gap-20">
-               <div className="text-center space-y-12"><div className="border-b border-black w-full"></div><p className="text-[10px] font-bold uppercase">ผู้รับสินค้า (Receiver)</p></div>
-               <div className="text-center space-y-12"><div className="border-b border-black w-full"></div><p className="text-[10px] font-bold uppercase">ผู้มีอำนาจลงนาม (Authorized)</p></div>
+               <div className="text-center space-y-20">
+                  <div className="border-b border-black w-full"></div>
+                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">ผู้รับสินค้า (RECEIVER SIGNATURE)</p>
+               </div>
+               <div className="text-center space-y-20">
+                  <div className="border-b border-black w-full"></div>
+                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">ผู้มีอำนาจลงนาม (AUTHORIZED SIGNATURE)</p>
+               </div>
+            </div>
+            
+            <div className="mt-16 text-center text-[9px] font-black text-slate-300 uppercase tracking-[0.5em]">
+              THANK YOU FOR YOUR BUSINESS
             </div>
           </div>
         )}
       </div>
 
-      {/* MODALS & VIEWS (OMITTED FOR BREVITY - PRESERVED FROM ORIGINAL) */}
       <BillModal isOpen={isBillModalOpen} setIsOpen={setIsBillModalOpen} newBillTab={newBillTab} setNewBillTab={setNewBillTab} billItems={billItems} setBillItems={setBillItems} products={products} addToCart={addToCart} updateCartQuantity={updateCartQuantity} customerName={customerName} setCustomerName={setCustomerName} customerPhone={customerPhone} setCustomerPhone={setCustomerPhone} customerAddress={customerAddress} setCustomerAddress={setCustomerAddress} shippingCarrier={shippingCarrier} setShippingCarrier={setShippingCarrier} paymentMethod={paymentMethod} setPaymentMethod={setPaymentMethod} handleCheckout={handleCheckout} formatMoney={formatMoney} cartTotal={cartTotal} t={t} skuSearch={skuSearch} setSkuSearch={setSkuSearch} />
       {isProductModalOpen && <ProductModal editingProduct={editingProduct} setIsProductModalOpen={setIsProductModalOpen} handleImageUpload={handleImageUpload} db={db} setEditingProduct={setEditingProduct} />}
       {isPromoModalOpen && <PromoModal editingPromo={editingPromo} setIsPromoModalOpen={setIsPromoModalOpen} products={products} promoSkusInput={promoSkusInput} setPromoSkusInput={setPromoSkusInput} db={db} t={t} />}
@@ -554,7 +596,7 @@ const App: React.FC = () => {
   );
 };
 
-// HELPER COMPONENTS (To keep main App clean)
+// ... Rest of the components remain as they were in the previous successful version ...
 const PromotionView = ({ promotions, products, setEditingPromo, setPromoSkusInput, setIsPromoModalOpen, formatMoney, deleteDoc, db }: any) => (
   <div className="space-y-4 animate-in slide-in-from-bottom-5">
       <div className="flex flex-row justify-between items-center">
@@ -639,7 +681,6 @@ const SettingsView = ({ storeProfile, setStoreProfile, handleImageUpload, t }: a
   </div>
 );
 
-// REMAINDER MODAL COMPONENTS PRESERVED BUT WRAPPED FOR EXPORT
 const BillModal = ({ isOpen, setNewBillTab, newBillTab, billItems, setBillItems, products, addToCart, updateCartQuantity, customerName, setCustomerName, customerPhone, setCustomerPhone, customerAddress, setCustomerAddress, shippingCarrier, setShippingCarrier, paymentMethod, setPaymentMethod, handleCheckout, formatMoney, cartTotal, t, skuSearch, setSkuSearch, setIsOpen }: any) => {
   if (!isOpen) return null;
   return (
