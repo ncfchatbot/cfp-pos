@@ -43,7 +43,7 @@ export interface CartItem extends Product {
 
 export type LogisticsProvider = 'Anuchit' | 'Meexai' | 'Rungarun' | 'Other' | 'None';
 
-export type OrderStatus = 'Pending' | 'Paid' | 'Shipped' | 'Completed';
+export type OrderStatus = 'Pending' | 'Paid' | 'Shipped' | 'Cancelled' | 'Completed';
 
 export type PaymentMethod = 'Transfer' | 'COD';
 
@@ -56,7 +56,7 @@ export interface SaleRecord {
   date: string;
   timestamp: number;
   status: OrderStatus;
-  paymentMethod?: PaymentMethod;
+  paymentMethod: PaymentMethod;
   customerName?: string;
   customerPhone?: string;
   customerAddress?: string;
@@ -79,7 +79,7 @@ export interface PromoTier {
 export interface Promotion {
   id: string;
   name: string;
-  targetProductId: string;
+  targetProductIds: string[]; // เปลี่ยนจาก targetProductId เป็น array
   isActive: boolean;
   tiers: PromoTier[];
 }
