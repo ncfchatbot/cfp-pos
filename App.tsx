@@ -4,7 +4,7 @@ import {
   Plus, Minus, Trash2, Edit, LayoutDashboard, Settings, 
   Package, ClipboardList, BarChart3, Tag, X, Search,
   ShoppingCart, Coffee, TrendingUp, CheckCircle2, Save, Send, Bot, 
-  User, Download, Upload, AlertCircle, FileText, Smartphone, Truck, CreditCard, Building2, MapPin, Image as ImageIcon, FileUp, FileDown, ShieldAlert, Wifi, WifiOff, DollarSign, PieChart, ArrowRight, BarChart2, Users, ChevronRight, List, Phone
+  User, Download, Upload, AlertCircle, FileText, Smartphone, Truck, CreditCard, Building2, MapPin, Image as ImageIcon, FileUp, FileDown, ShieldAlert, Wifi, WifiOff, DollarSign, PieChart, ArrowRight, BarChart2, Users, ChevronRight, List, Phone, Printer
 } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import { AppMode, Product, CartItem, SaleRecord, StoreProfile, Language, Promotion, PromoTier, Role, Message, LogisticsProvider, OrderStatus, PaymentMethod } from './types';
@@ -237,7 +237,6 @@ const App: React.FC = () => {
 
   // --- BULK SKU UPLOAD/DOWNLOAD ---
   const downloadSkuTemplate = () => {
-    // Removed "Color" from template as requested
     const headers = ["Code", "Name", "Price", "Cost", "Stock", "Category"];
     const example = ["CF001", "Iced Espresso", "25000", "15000", "100", "Coffee"];
     const csvContent = "\ufeff" + [headers, example].map(e => e.join(",")).join("\n");
@@ -261,15 +260,12 @@ const App: React.FC = () => {
       const results = [];
       // Skip headers
       for (let i = 1; i < lines.length; i++) {
-        // Use a more robust split for CSV that handles potential commas in names (though simple here)
         const cols = lines[i].split(',').map(c => c.trim().replace(/^"|"$/g, ''));
         if (cols.length < 5) continue;
 
-        // Adjusted to new template structure without Color
         const [code, name, price, cost, stock, category] = cols;
         if (!code || !name) continue;
 
-        // Find existing product by SKU code to update or create new one
         const existing = products.find(p => p.code === code);
         const productData: Product = {
           id: existing?.id || uuidv4(),
@@ -279,7 +275,7 @@ const App: React.FC = () => {
           cost: Number(cost) || 0,
           stock: Number(stock) || 0,
           category: category || "General",
-          color: existing?.color || "bg-sky-500", // Preserve existing color or use default
+          color: existing?.color || "bg-sky-500", 
           imageUrl: existing?.imageUrl || ""
         };
         results.push(productData);
@@ -302,6 +298,11 @@ const App: React.FC = () => {
       if (fileInputRef.current) fileInputRef.current.value = "";
     };
     reader.readAsText(file);
+  };
+
+  // --- PRINT STOCK REPORT ---
+  const printStockReport = () => {
+    window.print();
   };
 
   // --- REPORT CALCULATIONS ---
@@ -445,6 +446,9 @@ const App: React.FC = () => {
                  <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-4">
                     <h2 className="text-lg md:text-2xl font-black text-slate-800 flex items-center gap-2"><Package className="text-sky-500" size={20}/> {t.stock_title}</h2>
                     <div className="flex flex-wrap gap-2">
+                       <button onClick={printStockReport} className="flex-1 md:flex-none px-4 py-2 md:py-3 bg-white border border-slate-200 rounded-xl font-bold text-sky-600 hover:bg-slate-50 transition-all flex items-center justify-center gap-2 text-xs md:text-sm shadow-sm">
+                          <Printer size={16}/> {t.stock_print_report}
+                       </button>
                        <button onClick={downloadSkuTemplate} className="flex-1 md:flex-none px-4 py-2 md:py-3 bg-white border border-slate-200 rounded-xl font-bold text-slate-600 hover:bg-slate-50 transition-all flex items-center justify-center gap-2 text-xs md:text-sm shadow-sm">
                           <FileDown size={16}/> {t.stock_download_template}
                        </button>
@@ -710,6 +714,51 @@ const App: React.FC = () => {
           </div>
         </div>
       </main>
+
+      {/* INVENTORY AUDIT PRINT TEMPLATE (Hidden in UI) */}
+      <div id="stock-print-content" className="hidden p-10 bg-white min-h-screen text-slate-900">
+         <div className="text-center mb-10 border-b-2 border-slate-900 pb-6">
+            <h1 className="text-3xl font-black uppercase mb-2">{storeProfile.name}</h1>
+            <h2 className="text-xl font-bold uppercase tracking-widest">{t.stock_print_report}</h2>
+            <p className="text-sm mt-2">พิมพ์เมื่อ: {new Date().toLocaleString('th-TH')}</p>
+         </div>
+         <table className="w-full border-collapse border border-slate-900">
+            <thead>
+               <tr className="bg-slate-100">
+                  <th className="border border-slate-900 p-2 text-xs font-black w-10">ลำดับ</th>
+                  <th className="border border-slate-900 p-2 text-xs font-black text-left w-24">SKU</th>
+                  <th className="border border-slate-900 p-2 text-xs font-black text-left">รายการสินค้า</th>
+                  <th className="border border-slate-900 p-2 text-xs font-black w-24">ระบบ (System)</th>
+                  <th className="border border-slate-900 p-2 text-xs font-black w-24">นับได้จริง (Actual)</th>
+                  <th className="border border-slate-900 p-2 text-xs font-black w-20">ส่วนต่าง</th>
+               </tr>
+            </thead>
+            <tbody>
+               {products.map((p, idx) => (
+                  <tr key={p.id}>
+                     <td className="border border-slate-900 p-2 text-xs text-center">{idx + 1}</td>
+                     <td className="border border-slate-900 p-2 text-xs font-bold">{p.code}</td>
+                     <td className="border border-slate-900 p-2 text-xs">{p.name}</td>
+                     <td className="border border-slate-900 p-2 text-xs text-center font-black">{p.stock}</td>
+                     <td className="border border-slate-900 p-2 text-xs"></td>
+                     <td className="border border-slate-900 p-2 text-xs"></td>
+                  </tr>
+               ))}
+            </tbody>
+         </table>
+         <div className="mt-20 grid grid-cols-2 gap-20">
+            <div className="text-center">
+               <div className="border-b border-slate-900 w-full mb-2"></div>
+               <p className="text-xs font-bold">ลายเซ็นผู้นับสต็อก</p>
+               <p className="text-[10px] text-slate-400">(........................................................)</p>
+            </div>
+            <div className="text-center">
+               <div className="border-b border-slate-900 w-full mb-2"></div>
+               <p className="text-xs font-bold">ลายเซ็นผู้จัดการ/เจ้าของร้าน</p>
+               <p className="text-[10px] text-slate-400">(........................................................)</p>
+            </div>
+         </div>
+      </div>
 
       {/* NEW BILL MODAL - FULLY OPTIMIZED */}
       {isBillModalOpen && (
