@@ -122,8 +122,8 @@ const App: React.FC = () => {
 
   // --- DOWNLOAD CSV TEMPLATE ---
   const downloadTemplate = () => {
-    const headers = "name,code,price,cost,stock,category,color";
-    const example = "Espresso Coffee,E001,25000,15000,100,Coffee,bg-sky-500\nLatte Art,L002,30000,18000,50,Coffee,bg-purple-500";
+    const headers = "name,code,price,cost,stock,category";
+    const example = "Espresso Coffee,E001,25000,15000,100,Coffee\nLatte Art,L002,30000,18000,50,Coffee";
     const csvContent = "data:text/csv;charset=utf-8," + headers + "\n" + example;
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
@@ -154,7 +154,6 @@ const App: React.FC = () => {
           
           for (let i = 1; i < lines.length; i++) {
             if (!lines[i].trim()) continue;
-            // Simple comma split (doesn't handle commas inside quotes, but fine for simple POS data)
             const values = lines[i].split(',');
             const p: any = {};
             headers.forEach((h, idx) => {
@@ -177,7 +176,7 @@ const App: React.FC = () => {
               cost: Number(p.cost) || 0,
               stock: Number(p.stock) || 0,
               category: p.category || 'General',
-              color: p.color || 'bg-sky-500'
+              color: p.color || 'bg-sky-500' // Use default color if not provided
             });
             count++;
           }
@@ -191,7 +190,7 @@ const App: React.FC = () => {
       }
     };
     reader.readAsText(file);
-    e.target.value = ''; // Reset input to allow re-upload of same file
+    e.target.value = ''; // Reset input
   };
 
   const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -420,6 +419,10 @@ const App: React.FC = () => {
                           <button onClick={downloadTemplate} className="w-full py-4 bg-white/10 hover:bg-white/20 border border-white/10 rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-3 transition-all active:scale-95">
                              <FileDown size={16}/> {t.setting_download_template}
                           </button>
+                       </div>
+                       <div className="bg-slate-50 p-6 rounded-2xl space-y-3">
+                          <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest leading-none">CSV Header Format:</p>
+                          <code className="block text-[10px] bg-white p-3 rounded-lg border font-mono text-slate-600 truncate">name, code, price, cost, stock, category</code>
                        </div>
                     </div>
                  </Card>
