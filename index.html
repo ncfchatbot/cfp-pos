@@ -77,7 +77,6 @@
           size: A4;
           margin: 1cm;
         }
-        /* ซ่อนทุกอย่างยกเว้นส่วนที่ต้องการพิมพ์ */
         body * {
           visibility: hidden;
           -webkit-print-color-adjust: exact !important;
@@ -85,30 +84,29 @@
         }
         .print-area, .print-area * {
           visibility: visible !important;
-          display: block !important;
         }
         .print-area {
           position: absolute;
           left: 0;
           top: 0;
           width: 100%;
+          display: block !important;
           background: white !important;
           color: black !important;
-          z-index: 9999;
-          display: block !important;
         }
         table {
           width: 100%;
           border-collapse: collapse;
-          border: 1px solid black !important;
-        }
-        th, td {
-          border: 1px solid black !important;
-          padding: 8px;
-          visibility: visible !important;
         }
         .no-print {
           display: none !important;
+        }
+        /* Fix for table borders in some browsers */
+        table, th, td {
+          border: 1px solid #333 !important;
+        }
+        th {
+          background-color: #f3f4f6 !important;
         }
       }
     </style>
