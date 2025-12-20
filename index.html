@@ -82,12 +82,10 @@
           -webkit-print-color-adjust: exact !important;
           print-color-adjust: exact !important;
         }
-        /* Only print-area and its children are visible */
         .print-area, .print-area * {
           visibility: visible !important;
           display: block !important;
         }
-        /* Tables need flex/block override to show correctly */
         .print-area table { display: table !important; }
         .print-area thead { display: table-header-group !important; }
         .print-area tbody { display: table-row-group !important; }
@@ -107,12 +105,9 @@
           display: none !important;
         }
         
-        /* High definition table borders for printing */
         table, th, td {
           border: 1px solid #000 !important;
-        }
-        th {
-          background-color: #f3f4f6 !important;
+          border-collapse: collapse !important;
         }
       }
     </style>
