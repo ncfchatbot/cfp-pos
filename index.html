@@ -82,28 +82,34 @@
           -webkit-print-color-adjust: exact !important;
           print-color-adjust: exact !important;
         }
+        /* Only print-area and its children are visible */
         .print-area, .print-area * {
           visibility: visible !important;
+          display: block !important;
         }
+        /* Tables need flex/block override to show correctly */
+        .print-area table { display: table !important; }
+        .print-area thead { display: table-header-group !important; }
+        .print-area tbody { display: table-row-group !important; }
+        .print-area tr { display: table-row !important; }
+        .print-area th, .print-area td { display: table-cell !important; }
+
         .print-area {
           position: absolute;
           left: 0;
           top: 0;
           width: 100%;
-          display: block !important;
           background: white !important;
           color: black !important;
-        }
-        table {
-          width: 100%;
-          border-collapse: collapse;
+          z-index: 9999;
         }
         .no-print {
           display: none !important;
         }
-        /* Fix for table borders in some browsers */
+        
+        /* High definition table borders for printing */
         table, th, td {
-          border: 1px solid #333 !important;
+          border: 1px solid #000 !important;
         }
         th {
           background-color: #f3f4f6 !important;
