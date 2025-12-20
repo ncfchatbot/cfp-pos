@@ -22,7 +22,7 @@ export const translations: Record<Language, any> = {
     order_payment: 'ວິທີການຊຳລະ',
     payment_transfer: 'ໂອນເງິນ',
     payment_cod: 'ເກັບເງິນປາຍທາງ (COD)',
-    report_export_raw: 'ດາວໂຫລດຂໍ້ມູນທັງໝົດ',
+    report_export_raw: 'ດາວໂຫລດ Raw Data',
     stock_add: 'ເພີ່ມສິນຄ້າໃໝ່',
     stock_image_upload: 'ອັບໂຫຼດຮູບຈາກເຄື່ອງ',
     setting_shop_name: 'ຊື່ຮ້ານຄ້າ',
