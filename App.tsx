@@ -10,6 +10,8 @@ import { v4 as uuidv4 } from 'uuid';
 import { AppMode, Product, CartItem, SaleRecord, StoreProfile, Language, Promotion, PromoTier, Role, Message, LogisticsProvider, OrderStatus, PaymentMethod } from './types';
 import { translations } from './translations';
 import Sidebar from './components/Sidebar';
+import ChatMessage from './components/ChatMessage';
+import { streamResponse } from './services/gemini';
 import { db, collection, doc, setDoc, onSnapshot, query, orderBy, deleteDoc } from './services/firebase';
 
 // Responsive Card Component
@@ -42,7 +44,13 @@ const App: React.FC = () => {
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('Transfer');
   const [skuSearch, setSkuSearch] = useState('');
 
-  // Mobile specific for New Bill
+  // AI State
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [chatInput, setChatInput] = useState('');
+  const [isTyping, setIsTyping] = useState(false);
+  const chatEndRef = useRef<HTMLDivElement>(null);
+
+  // Mobile specific for New Bill Modal
   const [newBillTab, setNewBillTab] = useState<'items' | 'checkout'>('items');
 
   // Modals
@@ -52,6 +60,8 @@ const App: React.FC = () => {
   const [isPromoModalOpen, setIsPromoModalOpen] = useState(false);
   const [editingPromo, setEditingPromo] = useState<Promotion | null>(null);
   const [promoSkusInput, setPromoSkusInput] = useState('');
+  
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const t = translations[language];
 
@@ -72,6 +82,67 @@ const App: React.FC = () => {
     const unsubPr = onSnapshot(collection(db, 'promotions'), s => setPromotions(s.docs.map(d => ({ ...d.data(), id: d.id } as Promotion))));
     return () => { unsubP(); unsubS(); unsubPr(); };
   }, []);
+
+  // AI Helpers
+  const scrollToBottom = () => {
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
+
+  useEffect(() => {
+    if (mode === AppMode.AI) scrollToBottom();
+  }, [messages, mode]);
+
+  const handleSendMessage = async () => {
+    if (!chatInput.trim() || isTyping) return;
+
+    const userMsg: Message = {
+      id: uuidv4(),
+      role: Role.USER,
+      text: chatInput,
+      timestamp: Date.now()
+    };
+
+    setMessages(prev => [...prev, userMsg]);
+    setChatInput('');
+    setIsTyping(true);
+
+    const modelMsgId = uuidv4();
+    const initialModelMsg: Message = {
+      id: modelMsgId,
+      role: Role.MODEL,
+      text: '...',
+      timestamp: Date.now()
+    };
+    setMessages(prev => [...prev, initialModelMsg]);
+
+    try {
+      const history = messages.map(m => ({
+        role: m.role === Role.USER ? 'user' : 'model',
+        parts: [{ text: m.text }]
+      }));
+
+      const stream = await streamResponse(chatInput, AppMode.AI, history);
+      
+      if (stream) {
+        let fullText = '';
+        for await (const chunk of stream) {
+          const text = chunk.text;
+          if (text) {
+            fullText = fullText === '...' ? text : fullText + text;
+            setMessages(prev => prev.map(m => 
+              m.id === modelMsgId ? { ...m, text: fullText } : m
+            ));
+          }
+        }
+      }
+    } catch (error) {
+      setMessages(prev => prev.map(m => 
+        m.id === modelMsgId ? { ...m, text: "ขออภัย เกิดข้อผิดพลาดในการเชื่อมต่อ", isError: true } : m
+      ));
+    } finally {
+      setIsTyping(false);
+    }
+  };
 
   const formatMoney = (amount: number) => {
     const locale = language === 'th' ? 'th-TH' : (language === 'en' ? 'en-US' : 'lo-LA');
@@ -109,7 +180,7 @@ const App: React.FC = () => {
 
   const handleCheckout = async () => {
     if (billItems.length === 0) {
-        alert("กรุณาเลือกสินค้า");
+        alert("กรุณาเลือกสินค้าก่อนเช็คบิล");
         return;
     }
     const total = billItems.reduce((s, i) => s + (Number(i.price || 0) * i.quantity), 0);
@@ -130,7 +201,7 @@ const App: React.FC = () => {
       }
       setIsBillModalOpen(false); setBillItems([]); 
       setCustomerName(''); setCustomerPhone(''); setCustomerAddress(''); setShippingBranch('');
-      alert("Checkout Successful!");
+      alert("เช็คบิลสำเร็จ!");
     } catch (err: any) { alert("Error: " + err.message); }
   };
 
@@ -162,6 +233,75 @@ const App: React.FC = () => {
     const reader = new FileReader();
     reader.onload = (ev) => callback(ev.target?.result as string);
     reader.readAsDataURL(file);
+  };
+
+  // --- BULK SKU UPLOAD/DOWNLOAD ---
+  const downloadSkuTemplate = () => {
+    // Removed "Color" from template as requested
+    const headers = ["Code", "Name", "Price", "Cost", "Stock", "Category"];
+    const example = ["CF001", "Iced Espresso", "25000", "15000", "100", "Coffee"];
+    const csvContent = "\ufeff" + [headers, example].map(e => e.join(",")).join("\n");
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = `SKU_Import_Template.csv`;
+    link.click();
+  };
+
+  const handleBulkImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (ev) => {
+      const content = ev.target?.result as string;
+      const lines = content.split('\n').filter(l => l.trim());
+      if (lines.length <= 1) return;
+
+      const results = [];
+      // Skip headers
+      for (let i = 1; i < lines.length; i++) {
+        // Use a more robust split for CSV that handles potential commas in names (though simple here)
+        const cols = lines[i].split(',').map(c => c.trim().replace(/^"|"$/g, ''));
+        if (cols.length < 5) continue;
+
+        // Adjusted to new template structure without Color
+        const [code, name, price, cost, stock, category] = cols;
+        if (!code || !name) continue;
+
+        // Find existing product by SKU code to update or create new one
+        const existing = products.find(p => p.code === code);
+        const productData: Product = {
+          id: existing?.id || uuidv4(),
+          code,
+          name,
+          price: Number(price) || 0,
+          cost: Number(cost) || 0,
+          stock: Number(stock) || 0,
+          category: category || "General",
+          color: existing?.color || "bg-sky-500", // Preserve existing color or use default
+          imageUrl: existing?.imageUrl || ""
+        };
+        results.push(productData);
+      }
+
+      if (results.length > 0) {
+        if (confirm(`พบสินค้า ${results.length} รายการ ต้องการนำเข้าข้อมูลใช่หรือไม่?`)) {
+          try {
+            for (const p of results) {
+              await setDoc(doc(db, 'products', p.id), p);
+            }
+            alert(`นำเข้าสินค้า ${results.length} รายการสำเร็จ!`);
+          } catch (err: any) {
+            alert("Error: " + err.message);
+          }
+        }
+      } else {
+        alert("ไม่พบข้อมูลที่ถูกต้องในไฟล์");
+      }
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    };
+    reader.readAsText(file);
   };
 
   // --- REPORT CALCULATIONS ---
@@ -222,7 +362,7 @@ const App: React.FC = () => {
           <button onClick={() => setIsSidebarOpen(true)} className="md:hidden p-2 text-slate-400"><List size={20} /></button>
           <div className="flex items-center gap-2">
              <div className="w-8 h-8 md:w-10 md:h-10 bg-slate-100 rounded-lg flex items-center justify-center border overflow-hidden flex-shrink-0">
-                {storeProfile.logoUrl ? <img src={storeProfile.logoUrl} className="w-full h-full object-cover" /> : <Coffee size={18} className="text-slate-400"/>}
+                {storeProfile.logoUrl ? <img src={storeProfile.logoUrl} className="w-full h-full object-cover" /> : < Coffee size={18} className="text-slate-400"/>}
              </div>
              <h2 className="font-black text-slate-800 uppercase tracking-tight text-xs md:text-base truncate max-w-[120px] md:max-w-none">{t[`menu_${mode}`] || mode}</h2>
           </div>
@@ -302,11 +442,20 @@ const App: React.FC = () => {
 
             {mode === AppMode.STOCK && (
               <div className="space-y-4 animate-in slide-in-from-bottom-5">
-                 <div className="flex flex-row justify-between items-center">
+                 <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-4">
                     <h2 className="text-lg md:text-2xl font-black text-slate-800 flex items-center gap-2"><Package className="text-sky-500" size={20}/> {t.stock_title}</h2>
-                    <button onClick={()=>{setEditingProduct(null); setIsProductModalOpen(true);}} className="bg-sky-600 text-white px-4 md:px-8 py-2 md:py-4 rounded-xl font-black text-xs md:text-base">
-                       {t.stock_add}
-                    </button>
+                    <div className="flex flex-wrap gap-2">
+                       <button onClick={downloadSkuTemplate} className="flex-1 md:flex-none px-4 py-2 md:py-3 bg-white border border-slate-200 rounded-xl font-bold text-slate-600 hover:bg-slate-50 transition-all flex items-center justify-center gap-2 text-xs md:text-sm shadow-sm">
+                          <FileDown size={16}/> {t.stock_download_template}
+                       </button>
+                       <label className="flex-1 md:flex-none px-4 py-2 md:py-3 bg-white border border-slate-200 rounded-xl font-bold text-slate-600 hover:bg-slate-50 transition-all flex items-center justify-center gap-2 text-xs md:text-sm shadow-sm cursor-pointer">
+                          <FileUp size={16}/> {t.stock_import_csv}
+                          <input ref={fileInputRef} type="file" accept=".csv" className="hidden" onChange={handleBulkImport} />
+                       </label>
+                       <button onClick={()=>{setEditingProduct(null); setIsProductModalOpen(true);}} className="flex-1 md:flex-none bg-sky-600 text-white px-4 py-2 md:py-4 rounded-xl font-black text-xs md:text-base shadow-lg hover:bg-sky-700 active:scale-95 transition-all">
+                          {t.stock_add}
+                       </button>
+                    </div>
                  </div>
                  <div className="bg-white rounded-[1.2rem] md:rounded-[2.5rem] border shadow-sm overflow-hidden">
                    <div className="overflow-x-auto">
@@ -340,60 +489,79 @@ const App: React.FC = () => {
               <div className="space-y-4 animate-in slide-in-from-bottom-5">
                  <div className="flex flex-row justify-between items-center">
                     <h2 className="text-lg md:text-2xl font-black text-slate-800 flex items-center gap-2"><Tag className="text-sky-500" size={20}/> {t.menu_promotions}</h2>
-                    <button onClick={()=>{setEditingPromo(null); setPromoSkusInput(''); setIsPromoModalOpen(true);}} className="bg-sky-600 text-white px-4 md:px-8 py-2 md:py-4 rounded-xl font-black text-xs md:text-base">
+                    <button onClick={()=>{setEditingPromo(null); setPromoSkusInput(''); setIsPromoModalOpen(true);}} className="bg-sky-600 text-white px-4 md:px-8 py-2 md:py-4 rounded-xl font-black text-xs md:text-base shadow-lg hover:bg-sky-700 active:scale-95 transition-all">
                        เพิ่มโปรโมชั่น
                     </button>
                  </div>
-                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {promotions.map(promo => (
-                      <Card key={promo.id} className="relative group p-4 md:p-6">
-                        <div className="flex justify-between items-start mb-4">
-                           <h4 className="font-black text-slate-800 text-base md:text-lg">{promo.name}</h4>
-                           <div className="flex gap-2">
-                             <button onClick={()=>{
-                               setEditingPromo(promo);
-                               const skus = products.filter(p => promo.targetProductIds.includes(p.id)).map(p => p.code).join(', ');
-                               setPromoSkusInput(skus);
-                               setIsPromoModalOpen(true);
-                             }} className="p-2 text-slate-300 hover:text-sky-600 transition-colors"><Edit size={16}/></button>
-                             <button onClick={async ()=>{ if(confirm('ลบโปรโมชั่นนี้?')) await deleteDoc(doc(db, 'promotions', promo.id)); }} className="p-2 text-slate-300 hover:text-rose-600 transition-colors"><Trash2 size={16}/></button>
-                           </div>
-                        </div>
-                        <div className="space-y-2">
-                           <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Pricing Tiers</p>
-                           {promo.tiers.sort((a,b)=>a.minQty-b.minQty).map((tier, i) => (
-                             <div key={i} className="flex justify-between text-xs font-bold bg-slate-50 p-2 rounded-lg border border-slate-100">
-                                <span>{tier.minQty}+ ชิ้น</span>
-                                <span className="text-sky-600">{formatMoney(tier.unitPrice)}</span>
+                 {promotions.length === 0 ? (
+                    <div className="bg-white rounded-[2.5rem] p-20 flex flex-col items-center justify-center text-center opacity-40 border-2 border-dashed border-slate-200">
+                       <Tag size={64} className="mb-4" />
+                       <h3 className="text-xl font-black">ยังไม่มีโปรโมชั่น</h3>
+                       <p className="font-bold">กดปุ่ม "เพิ่มโปรโมชั่น" เพื่อสร้างโปรโมชั่นแรกของคุณ</p>
+                    </div>
+                 ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                      {promotions.map(promo => (
+                        <Card key={promo.id} className="relative group p-4 md:p-6">
+                          <div className="flex justify-between items-start mb-4">
+                             <h4 className="font-black text-slate-800 text-base md:text-lg">{promo.name}</h4>
+                             <div className="flex gap-2">
+                               <button onClick={()=>{
+                                 setEditingPromo(promo);
+                                 const skus = products.filter(p => promo.targetProductIds.includes(p.id)).map(p => p.code).join(', ');
+                                 setPromoSkusInput(skus);
+                                 setIsPromoModalOpen(true);
+                               }} className="p-2 text-slate-300 hover:text-sky-600 transition-colors"><Edit size={16}/></button>
+                               <button onClick={async ()=>{ if(confirm('ลบโปรโมชั่นนี้?')) await deleteDoc(doc(db, 'promotions', promo.id)); }} className="p-2 text-slate-300 hover:text-rose-600 transition-colors"><Trash2 size={16}/></button>
                              </div>
-                           ))}
-                        </div>
-                        <div className="mt-4 pt-4 border-t border-slate-100 flex items-center justify-between">
-                           <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase ${promo.isActive ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-100 text-slate-400'}`}>
-                             {promo.isActive ? 'เปิดใช้งาน' : 'ปิดใช้งาน'}
-                           </span>
-                           <p className="text-[10px] text-slate-400 font-bold">{promo.targetProductIds.length} สินค้าที่ร่วมรายการ</p>
-                        </div>
-                      </Card>
-                    ))}
-                 </div>
+                          </div>
+                          <div className="space-y-2">
+                             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Pricing Tiers</p>
+                             {promo.tiers.sort((a,b)=>a.minQty-b.minQty).map((tier, i) => (
+                               <div key={i} className="flex justify-between text-xs font-bold bg-slate-50 p-2 rounded-lg border border-slate-100">
+                                  <span>{tier.minQty}+ ชิ้น</span>
+                                  <span className="text-sky-600">{formatMoney(tier.unitPrice)}</span>
+                               </div>
+                             ))}
+                          </div>
+                          <div className="mt-4 pt-4 border-t border-slate-100 flex items-center justify-between">
+                             <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase ${promo.isActive ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-100 text-slate-400'}`}>
+                               {promo.isActive ? 'เปิดใช้งาน' : 'ปิดใช้งาน'}
+                             </span>
+                             <p className="text-[10px] text-slate-400 font-bold">{promo.targetProductIds.length} สินค้า</p>
+                          </div>
+                        </Card>
+                      ))}
+                    </div>
+                 )}
               </div>
             )}
 
             {mode === AppMode.REPORTS && (
               <div className="space-y-4 md:space-y-8 animate-in fade-in">
-                 <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                    <Card className="bg-sky-600 text-white border-0 p-3 md:p-6 shadow-xl">
-                       <p className="text-[8px] md:text-[10px] font-black uppercase opacity-70 mb-1 leading-tight">Total REVENUE</p>
-                       <h3 className="text-sm md:text-4xl font-black break-all">{formatMoney(reportStats.totalRevenue)}</h3>
+                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-6">
+                    <Card className="bg-sky-600 border-sky-500 p-4 md:p-8 flex flex-col justify-between shadow-xl text-white">
+                       <div className="flex justify-between items-start mb-2">
+                          <p className="text-[10px] md:text-xs font-black text-sky-100 uppercase tracking-widest">TOTAL REVENUE</p>
+                          <TrendingUp size={24} className="text-sky-200" />
+                       </div>
+                       <h3 className="text-xl md:text-4xl font-black break-all">{formatMoney(reportStats.totalRevenue)}</h3>
                     </Card>
-                    <Card className="p-3 md:p-6 border-slate-200">
-                       <p className="text-[8px] md:text-[10px] font-black text-slate-400 uppercase mb-1 leading-tight">Estimate PROFIT</p>
-                       <h3 className="text-sm md:text-4xl font-black text-emerald-600 break-all">{formatMoney(reportStats.profit)}</h3>
+
+                    <Card className="bg-white border-slate-200 p-4 md:p-8 flex flex-col justify-between shadow-sm">
+                       <div className="flex justify-between items-start mb-2">
+                          <p className="text-[10px] md:text-xs font-black text-slate-400 uppercase tracking-widest">ESTIMATE PROFIT</p>
+                          <DollarSign size={20} className="text-emerald-500" />
+                       </div>
+                       <h3 className="text-lg md:text-3xl font-black text-emerald-600 break-all">{formatMoney(reportStats.profit)}</h3>
                     </Card>
-                    <Card className="p-3 md:p-6 col-span-2 md:col-span-1 border-slate-200">
-                       <p className="text-[8px] md:text-[10px] font-black text-slate-400 uppercase mb-1 leading-tight">STOCK ASSET</p>
-                       <h3 className="text-sm md:text-4xl font-black text-slate-800 break-all">{formatMoney(reportStats.stockValue)}</h3>
+
+                    <Card className="bg-white border-slate-200 p-4 md:p-8 flex flex-col justify-between shadow-sm">
+                       <div className="flex justify-between items-start mb-2">
+                          <p className="text-[10px] md:text-xs font-black text-slate-400 uppercase tracking-widest">STOCK ASSET</p>
+                          <Package size={20} className="text-sky-500" />
+                       </div>
+                       <h3 className="text-lg md:text-3xl font-black text-slate-900 break-all">{formatMoney(reportStats.stockValue)}</h3>
                     </Card>
                  </div>
 
@@ -452,10 +620,48 @@ const App: React.FC = () => {
               </div>
             )}
 
+            {mode === AppMode.AI && (
+              <div className="flex flex-col h-[calc(100vh-140px)] animate-in fade-in">
+                 <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar">
+                    {messages.length === 0 ? (
+                       <div className="flex flex-col items-center justify-center h-full opacity-20 text-center gap-4">
+                          <Bot size={80} />
+                          <div>
+                             <h3 className="text-2xl font-black uppercase">Coffee Please AI</h3>
+                             <p className="font-bold">ถามเกี่ยวกับสต็อก ยอดขาย หรือการจัดการร้านได้เลย</p>
+                          </div>
+                       </div>
+                    ) : (
+                       messages.map(m => <ChatMessage key={m.id} message={m} />)
+                    )}
+                    <div ref={chatEndRef} />
+                 </div>
+                 
+                 <div className="p-4 bg-white border-t rounded-b-[2rem]">
+                    <div className="relative max-w-4xl mx-auto flex gap-2">
+                       <input 
+                         value={chatInput}
+                         onChange={e => setChatInput(e.target.value)}
+                         onKeyDown={e => e.key === 'Enter' && handleSendMessage()}
+                         placeholder="พิมพ์คำถามที่นี่..."
+                         className="flex-1 p-3 md:p-4 bg-slate-100 rounded-xl font-bold outline-none focus:bg-white focus:ring-2 focus:ring-sky-500 transition-all text-sm"
+                       />
+                       <button 
+                         onClick={handleSendMessage}
+                         disabled={!chatInput.trim() || isTyping}
+                         className="p-3 md:p-4 bg-sky-600 text-white rounded-xl hover:bg-sky-700 disabled:opacity-50 transition-all shadow-lg active:scale-95"
+                       >
+                          <Send size={20}/>
+                       </button>
+                    </div>
+                 </div>
+              </div>
+            )}
+
             {mode === AppMode.SETTINGS && (
               <div className="space-y-6 animate-in fade-in max-w-2xl mx-auto">
                  <h2 className="text-lg md:text-2xl font-black text-slate-800 flex items-center gap-2"><Settings className="text-sky-500" size={24}/> {t.menu_settings}</h2>
-                 <Card className="space-y-6">
+                 <Card className="space-y-6 shadow-lg border-sky-50">
                     <div className="flex justify-center mb-6">
                       <div className="relative group">
                         <div className="w-24 h-24 md:w-32 md:h-32 rounded-2xl md:rounded-[2.5rem] bg-slate-50 border-4 border-white shadow-xl overflow-hidden flex items-center justify-center border-dashed border-slate-200">
@@ -470,16 +676,16 @@ const App: React.FC = () => {
                     
                     <div className="grid grid-cols-1 gap-4">
                       <div className="space-y-1">
-                        <label className="text-[10px] font-black text-slate-400 uppercase ml-1">ชื่อร้านค้า</label>
-                        <input value={storeProfile.name} onChange={e=>setStoreProfile({...storeProfile, name: e.target.value})} className="w-full p-3 md:p-4 bg-slate-50 border rounded-xl font-bold outline-none text-sm focus:border-sky-500 transition-colors" />
+                        <label className="text-[10px] font-black text-slate-400 uppercase ml-1">ชื่อร้านค้า / Shop Name</label>
+                        <input value={storeProfile.name} onChange={e=>setStoreProfile({...storeProfile, name: e.target.value})} className="w-full p-3 md:p-4 bg-slate-50 border rounded-xl font-bold outline-none text-sm focus:border-sky-500 focus:bg-white transition-colors" />
                       </div>
                       <div className="space-y-1">
-                        <label className="text-[10px] font-black text-slate-400 uppercase ml-1">เบอร์โทรศัพท์ร้าน</label>
-                        <input value={storeProfile.phone} onChange={e=>setStoreProfile({...storeProfile, phone: e.target.value})} className="w-full p-3 md:p-4 bg-slate-50 border rounded-xl font-bold outline-none text-sm focus:border-sky-500 transition-colors" />
+                        <label className="text-[10px] font-black text-slate-400 uppercase ml-1">เบอร์โทรศัพท์ร้าน / Phone</label>
+                        <input value={storeProfile.phone} onChange={e=>setStoreProfile({...storeProfile, phone: e.target.value})} className="w-full p-3 md:p-4 bg-slate-50 border rounded-xl font-bold outline-none text-sm focus:border-sky-500 focus:bg-white transition-colors" />
                       </div>
                       <div className="space-y-1">
-                        <label className="text-[10px] font-black text-slate-400 uppercase ml-1">ที่อยู่ร้าน</label>
-                        <textarea value={storeProfile.address} onChange={e=>setStoreProfile({...storeProfile, address: e.target.value})} className="w-full p-3 md:p-4 bg-slate-50 border rounded-xl font-bold outline-none text-sm h-24 focus:border-sky-500 transition-colors" />
+                        <label className="text-[10px] font-black text-slate-400 uppercase ml-1">ที่อยู่ร้าน / Address</label>
+                        <textarea value={storeProfile.address} onChange={e=>setStoreProfile({...storeProfile, address: e.target.value})} className="w-full p-3 md:p-4 bg-slate-50 border rounded-xl font-bold outline-none text-sm h-24 focus:border-sky-500 focus:bg-white transition-colors" />
                       </div>
                     </div>
 
@@ -493,7 +699,6 @@ const App: React.FC = () => {
                           }}
                           className="w-full p-3 bg-slate-100 border rounded-xl font-mono text-[10px] h-32 outline-none focus:bg-white transition-all"
                        />
-                       <p className="text-[9px] text-slate-400">การเปลี่ยนค่าที่นี่อาจส่งผลต่อการเชื่อมต่อข้อมูล กรุณารีเฟรชหน้าเว็บหลังการบันทึก</p>
                     </div>
 
                     <button onClick={()=>{ alert('บันทึกข้อมูลสำเร็จ!'); window.location.reload(); }} className="w-full py-4 bg-sky-600 text-white rounded-xl font-black shadow-lg hover:bg-sky-700 transition-all flex items-center justify-center gap-2 active:scale-95">
@@ -506,7 +711,7 @@ const App: React.FC = () => {
         </div>
       </main>
 
-      {/* NEW BILL MODAL - FULLY OPTIMIZED FOR ALL DEVICES */}
+      {/* NEW BILL MODAL - FULLY OPTIMIZED */}
       {isBillModalOpen && (
         <div className="fixed inset-0 bg-slate-950/95 z-[500] flex items-center justify-center p-0 md:p-6 backdrop-blur-xl animate-in zoom-in-95">
           <div className="bg-white w-full h-full md:max-w-[95vw] md:h-[90vh] md:rounded-[3rem] shadow-2xl flex flex-col md:flex-row overflow-hidden relative">
@@ -561,12 +766,12 @@ const App: React.FC = () => {
                    <div className="flex items-center gap-3">
                       <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center font-black">{billItems.reduce((s,i)=>s+i.quantity,0)}</div>
                       <div>
-                         <p className="text-[9px] font-black uppercase opacity-70">ยอดรวมทั้งหมด</p>
+                         <p className="text-[9px] font-black uppercase opacity-70">ยอดรวม</p>
                          <p className="text-lg font-black">{formatMoney(cartTotal)}</p>
                       </div>
                    </div>
                    <button onClick={() => setNewBillTab('checkout')} className="bg-white text-sky-600 px-4 py-2 rounded-xl font-black text-sm flex items-center gap-1 shadow-lg active:scale-90 transition-all">
-                      เช็คบิล <ChevronRight size={16}/>
+                      ชำระเงิน <ChevronRight size={16}/>
                    </button>
                 </div>
              </div>
@@ -579,7 +784,7 @@ const App: React.FC = () => {
                 </div>
 
                 {/* Form Fields */}
-                <div className="space-y-3 mb-4 flex-shrink-0 overflow-y-auto max-h-[30%] md:max-h-none custom-scrollbar pr-1">
+                <div className="space-y-3 mb-4 flex-shrink-0 overflow-y-auto max-h-[40%] md:max-h-none custom-scrollbar pr-1">
                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                       <div className="space-y-1">
                          <label className="text-[8px] font-black text-slate-400 uppercase ml-1">ชื่อลูกค้า</label>
@@ -591,24 +796,24 @@ const App: React.FC = () => {
                       </div>
                    </div>
                    <div className="space-y-1">
-                      <label className="text-[8px] font-black text-slate-400 uppercase ml-1">ที่อยู่จัดส่ง / สาขา</label>
+                      <label className="text-[8px] font-black text-slate-400 uppercase ml-1">ที่อยู่/สาขาจัดส่ง</label>
                       <textarea value={customerAddress} onChange={e=>setCustomerAddress(e.target.value)} placeholder={t.order_cust_addr} className="w-full p-3 bg-white border rounded-xl font-bold h-16 md:h-24 text-xs resize-none shadow-sm outline-none focus:border-sky-500" />
                    </div>
                    <div className="grid grid-cols-2 gap-3">
                       <div className="space-y-1">
                          <label className="text-[8px] font-black text-slate-400 uppercase ml-1">ขนส่ง</label>
                          <select value={shippingCarrier} onChange={e=>setShippingCarrier(e.target.value as any)} className="w-full p-3 bg-white border rounded-xl font-bold text-xs shadow-sm outline-none">
-                            <option value="None">เลือกขนส่ง / รับเอง</option>
+                            <option value="None">รับเองหน้าร้าน</option>
                             <option value="Anuchit">Anuchit</option>
                             <option value="Meexai">Meexai</option>
                             <option value="Rungarun">Rungarun</option>
                          </select>
                       </div>
                       <div className="space-y-1">
-                         <label className="text-[8px] font-black text-slate-400 uppercase ml-1">การชำระเงิน</label>
+                         <label className="text-[8px] font-black text-slate-400 uppercase ml-1">ชำระเงิน</label>
                          <select value={paymentMethod} onChange={e=>setPaymentMethod(e.target.value as any)} className="w-full p-3 bg-white border rounded-xl font-bold text-xs shadow-sm outline-none">
                             <option value="Transfer">โอนเงิน</option>
-                            <option value="COD">COD (เก็บเงินปลายทาง)</option>
+                            <option value="COD">เก็บเงินปลายทาง</option>
                          </select>
                       </div>
                    </div>
@@ -619,7 +824,7 @@ const App: React.FC = () => {
                    {billItems.length === 0 ? (
                       <div className="py-12 flex flex-col items-center justify-center opacity-30 gap-2">
                          <ShoppingCart size={40} className="text-slate-300"/>
-                         <p className="text-[10px] font-black uppercase">ยังไม่มีสินค้าในตะกร้า</p>
+                         <p className="text-[10px] font-black uppercase text-center">ยังไม่มีสินค้าในตะกร้า<br/>กลับไปเลือกสินค้าหน้าแรก</p>
                       </div>
                    ) : billItems.map(it => (
                       <div key={it.id} className="flex items-center gap-3 p-2 bg-white rounded-xl border border-slate-100 shadow-sm animate-in fade-in slide-in-from-right-2">
@@ -648,7 +853,7 @@ const App: React.FC = () => {
                          <span className="text-2xl md:text-3xl font-black text-sky-600">{formatMoney(cartTotal)}</span>
                       </div>
                       <div className="flex flex-col items-end">
-                         <span className="text-[9px] font-bold text-slate-400 leading-tight">จำนวนรายการ</span>
+                         <span className="text-[9px] font-bold text-slate-400 leading-tight">รายการ</span>
                          <span className="font-black text-slate-800 text-lg">{billItems.reduce((s,i)=>s+i.quantity, 0)}</span>
                       </div>
                    </div>
@@ -680,7 +885,7 @@ const App: React.FC = () => {
                   name: fd.get('name') as string, code: fd.get('code') as string,
                   cost: Number(fd.get('cost')), price: Number(fd.get('price')), stock: Number(fd.get('stock')),
                   imageUrl: editingProduct?.imageUrl || "",
-                  color: editingProduct?.color || "bg-sky-500", category: "General"
+                  color: editingProduct?.color || "bg-sky-500", category: fd.get('category') as string || "General"
                 };
                 await setDoc(doc(db, 'products', p.id), p);
                 setIsProductModalOpen(false);

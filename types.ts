@@ -21,6 +21,7 @@ export enum AppMode {
   STOCK = 'stock',
   REPORTS = 'reports',
   PROMOTIONS = 'promotions',
+  AI = 'ai',
   SETTINGS = 'settings'
 }
 
