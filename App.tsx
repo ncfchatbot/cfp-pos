@@ -4,7 +4,7 @@ import {
   Plus, Minus, Trash2, Edit, LayoutDashboard, Settings, 
   Package, ClipboardList, BarChart3, Tag, X, Search,
   ShoppingCart, Coffee, TrendingUp, CheckCircle2, Save, Send, Bot, 
-  User, Download, Upload, AlertCircle, FileText, Smartphone, Truck, CreditCard, Building2, MapPin, Image as ImageIcon, FileUp
+  User, Download, Upload, AlertCircle, FileText, Smartphone, Truck, CreditCard, Building2, MapPin, Image as ImageIcon, FileUp, FileDown
 } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import { AppMode, Product, CartItem, SaleRecord, StoreProfile, Language, Promotion, PromoTier, Role, Message, LogisticsProvider, OrderStatus, PaymentMethod } from './types';
@@ -120,7 +120,21 @@ const App: React.FC = () => {
     setCustomerName(''); setCustomerPhone(''); setCustomerAddress(''); setShippingBranch('');
   };
 
-  // --- NEW: BULK FILE IMPORT (CSV/JSON) ---
+  // --- DOWNLOAD CSV TEMPLATE ---
+  const downloadTemplate = () => {
+    const headers = "name,code,price,cost,stock,category,color";
+    const example = "Espresso Coffee,E001,25000,15000,100,Coffee,bg-sky-500\nLatte Art,L002,30000,18000,50,Coffee,bg-purple-500";
+    const csvContent = "data:text/csv;charset=utf-8," + headers + "\n" + example;
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", "coffee_please_product_template.csv");
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  // --- BULK FILE IMPORT (CSV/JSON) ---
   const handleBulkFileImport = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -134,11 +148,13 @@ const App: React.FC = () => {
         if (file.name.endsWith('.json')) {
           importedProducts = JSON.parse(content);
         } else if (file.name.endsWith('.csv')) {
-          const lines = content.split('\n');
+          const lines = content.split(/\r?\n/);
+          if (lines.length < 2) return;
           const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
           
           for (let i = 1; i < lines.length; i++) {
             if (!lines[i].trim()) continue;
+            // Simple comma split (doesn't handle commas inside quotes, but fine for simple POS data)
             const values = lines[i].split(',');
             const p: any = {};
             headers.forEach((h, idx) => {
@@ -151,11 +167,12 @@ const App: React.FC = () => {
         if (Array.isArray(importedProducts) && db) {
           let count = 0;
           for (const p of importedProducts) {
+            if (!p.name) continue; // Skip invalid entries
             const id = p.id || uuidv4();
             await setDoc(doc(db, 'products', id), {
               id,
-              code: p.code || 'SKU-' + id.slice(0, 5),
-              name: p.name || 'Untitled',
+              code: p.code || 'SKU-' + Math.random().toString(36).substr(2, 5).toUpperCase(),
+              name: p.name,
               price: Number(p.price) || 0,
               cost: Number(p.cost) || 0,
               stock: Number(p.stock) || 0,
@@ -166,21 +183,21 @@ const App: React.FC = () => {
           }
           alert(`Successfully imported ${count} items!`);
         } else {
-          alert('Invalid file format. Please use CSV or JSON array.');
+          alert('Invalid file structure. Please use the downloaded template.');
         }
       } catch (err) {
         console.error(err);
-        alert('Error processing file. Please check formatting.');
+        alert('Error processing file. Please check formatting and headers.');
       }
     };
     reader.readAsText(file);
-    e.target.value = ''; // Reset input
+    e.target.value = ''; // Reset input to allow re-upload of same file
   };
 
   const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      if (file.size > 1024 * 1024) { // Limit 1MB to keep Base64 manageable
+      if (file.size > 1024 * 1024) { // Limit 1MB
         alert('File size too large. Please use image under 1MB.');
         return;
       }
@@ -253,7 +270,7 @@ const App: React.FC = () => {
                           <h4 className="text-xl font-black text-slate-800">Welcome, {storeProfile.name}!</h4>
                           <p className="text-slate-500 font-medium">จัดการรายการขายและสต็อกสินค้าของคุณได้ที่นี่</p>
                        </div>
-                       <button onClick={() => setIsBillModalOpen(true)} className="px-10 py-5 bg-slate-900 text-white rounded-2xl font-black hover:bg-black transition-all shadow-xl">
+                       <button onClick={() => setIsBillModalOpen(true)} className="px-10 py-5 bg-slate-900 text-white rounded-2xl font-black hover:bg-black transition-all shadow-xl active:scale-95">
                           {t.order_create_bill}
                        </button>
                     </div>
@@ -283,6 +300,7 @@ const App: React.FC = () => {
                                <td className="px-8 py-5 text-center"><span className={`px-4 py-1.5 rounded-xl text-[10px] font-black uppercase ${s.status === 'Paid' ? 'bg-emerald-100 text-emerald-600' : 'bg-rose-100 text-rose-600'}`}>{s.status === 'Paid' ? t.pay_paid : t.pay_pending}</span></td>
                             </tr>
                           ))}
+                          {recentSales.length === 0 && <tr><td colSpan={5} className="py-20 text-center text-slate-300 font-black uppercase italic tracking-widest">No order history</td></tr>}
                        </tbody>
                     </table>
                  </div>
@@ -307,7 +325,7 @@ const App: React.FC = () => {
                             <tr key={p.id} className="hover:bg-slate-50 transition-colors">
                                <td className="px-8 py-5 flex items-center gap-4">
                                   <div className={`w-10 h-10 rounded-xl ${p.color || 'bg-slate-200'} flex items-center justify-center text-white font-black`}>{p.name.charAt(0)}</div>
-                                  <div><div className="text-slate-800">{p.name}</div><div className="text-[10px] text-slate-300">SKU: {p.code}</div></div>
+                                  <div><div className="text-slate-800">{p.name}</div><div className="text-[10px] text-slate-300 font-mono">SKU: {p.code}</div></div>
                                </td>
                                <td className="px-8 py-5 text-right text-slate-400">{formatMoney(p.cost)}</td>
                                <td className="px-8 py-5 text-right text-sky-600 font-black">{formatMoney(p.price)}</td>
@@ -358,43 +376,50 @@ const App: React.FC = () => {
 
             {mode === AppMode.SETTINGS && (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-8 animate-in fade-in">
+                 {/* SHOP PROFILE */}
                  <Card>
                     <h4 className="font-black text-slate-800 uppercase tracking-widest text-xs mb-8 flex items-center gap-2 border-b pb-4"><Settings size={16}/> {t.menu_settings}</h4>
                     <div className="space-y-5">
                        <div className="flex items-center gap-6 mb-4">
-                          <div className="w-20 h-20 bg-slate-100 rounded-[2rem] border overflow-hidden flex items-center justify-center text-slate-300">
-                             {storeProfile.logoUrl ? <img src={storeProfile.logoUrl} className="w-full h-full object-cover" /> : <ImageIcon size={30}/>}
+                          <div className="w-24 h-24 bg-slate-50 rounded-[2.5rem] border border-slate-200 overflow-hidden flex items-center justify-center text-slate-300 shadow-inner">
+                             {storeProfile.logoUrl ? <img src={storeProfile.logoUrl} className="w-full h-full object-cover" /> : <ImageIcon size={40}/>}
                           </div>
-                          <div className="flex-1">
-                             <label className="inline-block px-8 py-4 bg-slate-900 text-white rounded-2xl text-xs font-black uppercase cursor-pointer hover:bg-black transition-all shadow-lg shadow-slate-900/10">
-                                {t.setting_logo_url}
+                          <div className="flex-1 space-y-3">
+                             <label className="inline-flex items-center gap-2 px-8 py-4 bg-slate-900 text-white rounded-2xl text-[10px] font-black uppercase cursor-pointer hover:bg-black transition-all shadow-xl shadow-slate-900/10">
+                                <Upload size={14}/> {t.setting_logo_url}
                                 <input type="file" className="hidden" accept="image/*" onChange={handleLogoUpload} />
                              </label>
-                             <p className="text-[9px] text-slate-400 mt-3 font-bold uppercase leading-relaxed tracking-wider">Supports PNG, JPG (Max 1MB)<br/>Saved locally in your browser.</p>
+                             <p className="text-[9px] text-slate-400 font-bold uppercase leading-relaxed tracking-wider px-1">Supports PNG, JPG (Max 1MB)</p>
                           </div>
                        </div>
-                       <div><label className="text-[10px] font-black text-slate-400 uppercase ml-1">{t.setting_shop_name}</label><input value={storeProfile.name} onChange={e=>setStoreProfile({...storeProfile, name: e.target.value})} className="w-full p-4 bg-slate-50 border rounded-xl font-bold focus:border-sky-500 outline-none" /></div>
-                       <div><label className="text-[10px] font-black text-slate-400 uppercase ml-1">{t.setting_address}</label><textarea value={storeProfile.address} onChange={e=>setStoreProfile({...storeProfile, address: e.target.value})} className="w-full p-4 bg-slate-50 border rounded-xl font-bold h-24 focus:border-sky-500 outline-none" placeholder="Store Address..." /></div>
-                       <button onClick={()=>{localStorage.setItem('pos_profile', JSON.stringify(storeProfile)); alert('Settings Saved Locally');}} className="w-full py-5 bg-sky-600 text-white rounded-2xl font-black uppercase text-xs tracking-widest flex items-center justify-center gap-2 shadow-lg shadow-sky-600/20 active:scale-95 transition-all"><Save size={16}/> {t.save}</button>
+                       <div><label className="text-[10px] font-black text-slate-400 uppercase ml-1">{t.setting_shop_name}</label><input value={storeProfile.name} onChange={e=>setStoreProfile({...storeProfile, name: e.target.value})} className="w-full p-4 bg-slate-50 border rounded-2xl font-bold focus:border-sky-500 outline-none transition-all" /></div>
+                       <div><label className="text-[10px] font-black text-slate-400 uppercase ml-1">{t.setting_address}</label><textarea value={storeProfile.address} onChange={e=>setStoreProfile({...storeProfile, address: e.target.value})} className="w-full p-4 bg-slate-50 border rounded-2xl font-bold h-24 focus:border-sky-500 outline-none transition-all" placeholder="Store Address..." /></div>
+                       <button onClick={()=>{localStorage.setItem('pos_profile', JSON.stringify(storeProfile)); alert('Settings Saved Locally');}} className="w-full py-5 bg-sky-600 text-white rounded-2xl font-black uppercase text-xs tracking-widest flex items-center justify-center gap-2 shadow-xl shadow-sky-600/20 active:scale-95 transition-all"><Save size={16}/> {t.save}</button>
                     </div>
                  </Card>
+
+                 {/* BULK FILE UPLOAD */}
                  <Card>
                     <h4 className="font-black text-slate-800 uppercase tracking-widest text-xs mb-8 flex items-center gap-2 border-b pb-4"><FileUp size={16}/> {t.setting_bulk}</h4>
                     <div className="space-y-6">
-                       <div className="p-10 border-2 border-dashed border-slate-200 rounded-[2rem] flex flex-col items-center justify-center text-center group hover:border-sky-400 transition-colors">
-                          <div className="p-5 bg-sky-50 text-sky-500 rounded-full mb-4 group-hover:scale-110 transition-transform"><FileUp size={32}/></div>
-                          <p className="text-sm font-black text-slate-800 mb-1">Upload Bulk File</p>
-                          <p className="text-[10px] font-bold text-slate-400 uppercase mb-6">Supports CSV or JSON formats</p>
+                       <div className="p-10 border-2 border-dashed border-slate-200 rounded-[3rem] bg-slate-50/30 flex flex-col items-center justify-center text-center group hover:border-sky-400 hover:bg-sky-50/20 transition-all duration-300">
+                          <div className="p-6 bg-white shadow-xl rounded-[2rem] mb-6 group-hover:scale-110 group-hover:-rotate-3 transition-transform duration-300"><FileUp size={40} className="text-sky-500"/></div>
+                          <p className="text-sm font-black text-slate-800 mb-2">Upload File to Import</p>
+                          <p className="text-[10px] font-bold text-slate-400 uppercase mb-10 tracking-widest">CSV (Excel) or JSON</p>
                           
-                          <label className="px-10 py-4 bg-slate-900 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest cursor-pointer hover:bg-black transition-all">
-                             {t.setting_bulk}
+                          <label className="px-12 py-5 bg-slate-900 text-white rounded-2xl text-xs font-black uppercase tracking-[0.2em] cursor-pointer hover:bg-black hover:shadow-2xl active:scale-95 transition-all">
+                             SELECT FILE
                              <input type="file" className="hidden" accept=".csv,.json" onChange={handleBulkFileImport} />
                           </label>
                        </div>
-                       <div className="bg-slate-50 p-6 rounded-2xl space-y-3">
-                          <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest leading-none">CSV Header Format:</p>
-                          <code className="block text-[10px] bg-white p-3 rounded-lg border font-mono text-slate-600 truncate">name, code, price, cost, stock, category, color</code>
-                          <p className="text-[9px] font-bold text-slate-400 italic leading-relaxed">* You can use Excel to save as CSV and upload here easily.</p>
+
+                       <div className="bg-slate-900 text-white p-8 rounded-[2.5rem] shadow-2xl relative overflow-hidden group">
+                          <div className="absolute top-0 right-0 p-10 opacity-10 group-hover:scale-110 transition-transform"><FileDown size={80}/></div>
+                          <h5 className="text-xs font-black uppercase tracking-[0.2em] text-sky-400 mb-4 flex items-center gap-2"><AlertCircle size={14}/> Need Help?</h5>
+                          <p className="text-xs text-slate-400 font-bold mb-8 leading-relaxed">Don't have a file? Download our standard template to fill your products easily.</p>
+                          <button onClick={downloadTemplate} className="w-full py-4 bg-white/10 hover:bg-white/20 border border-white/10 rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-3 transition-all active:scale-95">
+                             <FileDown size={16}/> {t.setting_download_template}
+                          </button>
                        </div>
                     </div>
                  </Card>
@@ -406,11 +431,11 @@ const App: React.FC = () => {
 
       {/* --- MODALS --- */}
 
-      {/* COMPREHENSIVE BILL MODAL */}
+      {/* BILL MODAL */}
       {isBillModalOpen && (
         <div className="fixed inset-0 bg-slate-950/90 z-[500] flex items-center justify-center p-4 backdrop-blur-xl animate-in zoom-in-95">
           <div className="bg-white w-full max-w-[95vw] h-[90vh] rounded-[4rem] shadow-2xl flex flex-col md:flex-row overflow-hidden border border-white/20">
-             
+             {/* Cart Panel */}
              <div className="w-full md:w-[45%] bg-slate-50 border-r flex flex-col h-full overflow-hidden">
                 <div className="p-8 border-b bg-white">
                    <div className="flex justify-between items-center mb-6">
@@ -418,10 +443,10 @@ const App: React.FC = () => {
                       <button onClick={()=>setIsBillModalOpen(false)} className="p-3 bg-slate-100 rounded-full hover:bg-rose-500 hover:text-white transition-all"><X size={20}/></button>
                    </div>
                    <div className="grid grid-cols-2 gap-4 mb-4">
-                      <div className="relative"><User size={16} className="absolute top-4 left-4 text-slate-300"/><input value={customerName} onChange={e=>setCustomerName(e.target.value)} className="w-full p-4 pl-12 bg-slate-50 border rounded-2xl font-bold outline-none focus:border-sky-500" placeholder={t.order_cust_name} /></div>
-                      <div className="relative"><Smartphone size={16} className="absolute top-4 left-4 text-slate-300"/><input value={customerPhone} onChange={e=>setCustomerPhone(e.target.value)} className="w-full p-4 pl-12 bg-slate-50 border rounded-2xl font-bold outline-none focus:border-sky-500" placeholder={t.order_cust_phone} /></div>
+                      <div className="relative"><User size={16} className="absolute top-4 left-4 text-slate-300"/><input value={customerName} onChange={e=>setCustomerName(e.target.value)} className="w-full p-4 pl-12 bg-slate-50 border rounded-2xl font-bold outline-none focus:border-sky-500 transition-all" placeholder={t.order_cust_name} /></div>
+                      <div className="relative"><Smartphone size={16} className="absolute top-4 left-4 text-slate-300"/><input value={customerPhone} onChange={e=>setCustomerPhone(e.target.value)} className="w-full p-4 pl-12 bg-slate-50 border rounded-2xl font-bold outline-none focus:border-sky-500 transition-all" placeholder={t.order_cust_phone} /></div>
                    </div>
-                   <div className="relative mb-4"><MapPin size={16} className="absolute top-4 left-4 text-slate-300"/><textarea value={customerAddress} onChange={e=>setCustomerAddress(e.target.value)} className="w-full p-4 pl-12 bg-slate-50 border rounded-2xl font-bold outline-none focus:border-sky-500 h-20" placeholder={t.order_cust_addr} /></div>
+                   <div className="relative mb-4"><MapPin size={16} className="absolute top-4 left-4 text-slate-300"/><textarea value={customerAddress} onChange={e=>setCustomerAddress(e.target.value)} className="w-full p-4 pl-12 bg-slate-50 border rounded-2xl font-bold outline-none focus:border-sky-500 h-20 transition-all" placeholder={t.order_cust_addr} /></div>
                    <div className="grid grid-cols-2 gap-4">
                       <div><label className="text-[9px] font-black text-slate-400 uppercase mb-1 ml-1">{t.order_carrier}</label>
                         <select value={shippingCarrier} onChange={e=>setShippingCarrier(e.target.value as LogisticsProvider)} className="w-full p-3 bg-slate-100 border rounded-xl font-bold outline-none">
@@ -445,44 +470,45 @@ const App: React.FC = () => {
                          <button onClick={()=>setBillItems(p=>p.filter(x=>x.id!==it.id))} className="p-2 text-rose-300 hover:text-rose-600"><Trash2 size={16}/></button>
                       </div>
                    ))}
-                   {billItems.length === 0 && <div className="h-full flex flex-col items-center justify-center opacity-10 font-black uppercase italic py-20">Cart is empty</div>}
+                   {billItems.length === 0 && <div className="h-full flex flex-col items-center justify-center opacity-10 font-black uppercase italic py-20 tracking-widest">{t.cart_empty}</div>}
                 </div>
 
-                <div className="p-8 border-t bg-white space-y-4">
+                <div className="p-8 border-t bg-white space-y-4 shadow-2xl">
                    <div className="grid grid-cols-2 gap-4">
                       <div><label className="text-[9px] font-black text-slate-400 uppercase mb-1 ml-1">{t.order_payment}</label>
                         <div className="flex gap-2">
-                           <button onClick={()=>setPaymentMethod('Transfer')} className={`flex-1 p-2 rounded-xl border text-[10px] font-black ${paymentMethod==='Transfer' ? 'bg-sky-600 text-white border-sky-600':'bg-white text-slate-400'}`}>TRANSFER</button>
-                           <button onClick={()=>setPaymentMethod('COD')} className={`flex-1 p-2 rounded-xl border text-[10px] font-black ${paymentMethod==='COD' ? 'bg-amber-600 text-white border-amber-600':'bg-white text-slate-400'}`}>COD</button>
+                           <button onClick={()=>setPaymentMethod('Transfer')} className={`flex-1 p-2 rounded-xl border text-[10px] font-black transition-all ${paymentMethod==='Transfer' ? 'bg-sky-600 text-white border-sky-600':'bg-white text-slate-400'}`}>TRANSFER</button>
+                           <button onClick={()=>setPaymentMethod('COD')} className={`flex-1 p-2 rounded-xl border text-[10px] font-black transition-all ${paymentMethod==='COD' ? 'bg-amber-600 text-white border-amber-600':'bg-white text-slate-400'}`}>COD</button>
                         </div>
                       </div>
                       <div><label className="text-[9px] font-black text-slate-400 uppercase mb-1 ml-1">STATUS</label>
                         <div className="flex gap-2">
-                           <button onClick={()=>setPaymentStatus('Paid')} className={`flex-1 p-2 rounded-xl border text-[10px] font-black ${paymentStatus==='Paid' ? 'bg-emerald-600 text-white border-emerald-600':'bg-white text-slate-400'}`}>PAID</button>
-                           <button onClick={()=>setPaymentStatus('Pending')} className={`flex-1 p-2 rounded-xl border text-[10px] font-black ${paymentStatus==='Pending' ? 'bg-rose-600 text-white border-rose-600':'bg-white text-slate-400'}`}>PENDING</button>
+                           <button onClick={()=>setPaymentStatus('Paid')} className={`flex-1 p-2 rounded-xl border text-[10px] font-black transition-all ${paymentStatus==='Paid' ? 'bg-emerald-600 text-white border-emerald-600':'bg-white text-slate-400'}`}>PAID</button>
+                           <button onClick={()=>setPaymentStatus('Pending')} className={`flex-1 p-2 rounded-xl border text-[10px] font-black transition-all ${paymentStatus==='Pending' ? 'bg-rose-600 text-white border-rose-600':'bg-white text-slate-400'}`}>PENDING</button>
                         </div>
                       </div>
                    </div>
                    <div className="flex justify-between items-end border-t pt-4">
                       <div className="text-[10px] font-black text-slate-300 uppercase tracking-widest leading-none mb-1">TOTAL PAYABLE</div>
-                      <div className="text-4xl font-black text-sky-600 tracking-tighter">{formatMoney(billItems.reduce((s,i)=>s+(i.price*i.quantity),0)).split(" ")[0]}</div>
+                      <div className="text-5xl font-black text-sky-600 tracking-tighter">{formatMoney(billItems.reduce((s,i)=>s+(i.price*i.quantity),0)).split(" ")[0]}</div>
                    </div>
-                   <button onClick={handleCheckout} disabled={billItems.length===0} className="w-full py-5 bg-sky-600 text-white rounded-3xl font-black text-xl shadow-xl hover:bg-sky-700 transition-all uppercase active:scale-95">CHECKOUT NOW</button>
+                   <button onClick={handleCheckout} disabled={billItems.length===0} className="w-full py-6 bg-sky-600 text-white rounded-[2rem] font-black text-xl shadow-2xl hover:bg-sky-700 transition-all uppercase active:scale-95">CHECKOUT NOW</button>
                 </div>
              </div>
 
+             {/* Product Selection Panel */}
              <div className="flex-1 p-8 flex flex-col bg-white overflow-hidden">
                 <div className="mb-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
-                   <h4 className="text-xl font-black text-slate-800 uppercase tracking-tight">Products</h4>
-                   <div className="flex items-center gap-4 bg-slate-50 p-3 rounded-2xl border-2 w-full max-w-sm focus-within:border-sky-500 transition-all">
+                   <h4 className="text-xl font-black text-slate-800 uppercase tracking-tight">Catalog</h4>
+                   <div className="flex items-center gap-4 bg-slate-50 p-3 rounded-2xl border-2 w-full max-w-sm focus-within:border-sky-500 transition-all shadow-inner">
                       <Search className="text-slate-300" size={18} /><input value={skuSearch} onChange={e=>setSkuSearch(e.target.value)} placeholder={t.search_sku} className="bg-transparent outline-none flex-1 font-bold text-sm" />
                    </div>
                 </div>
                 <div className="flex-1 overflow-y-auto grid grid-cols-2 lg:grid-cols-4 gap-4 pr-2 custom-scrollbar">
                    {products.filter(p => !skuSearch || p.name.toLowerCase().includes(skuSearch.toLowerCase()) || p.code.includes(skuSearch)).map(p => (
-                      <button key={p.id} onClick={()=>addToCart(p)} className="bg-white p-4 rounded-[2rem] border shadow-sm hover:border-sky-500 transition-all flex flex-col group h-fit text-left">
-                         <div className={`w-full aspect-square rounded-2xl ${p.color} mb-3 flex items-center justify-center text-3xl font-black text-white shadow-lg group-hover:scale-105 transition-all`}>{p.name.charAt(0)}</div>
-                         <h4 className="font-black text-slate-800 text-[10px] truncate mb-1">{p.name}</h4>
+                      <button key={p.id} onClick={()=>addToCart(p)} className="bg-white p-4 rounded-[2.5rem] border shadow-sm hover:border-sky-500 transition-all flex flex-col group h-fit text-left active:scale-95">
+                         <div className={`w-full aspect-square rounded-[2rem] ${p.color} mb-3 flex items-center justify-center text-4xl font-black text-white shadow-lg group-hover:scale-105 transition-all`}>{p.name.charAt(0)}</div>
+                         <h4 className="font-black text-slate-800 text-[11px] truncate mb-1">{p.name}</h4>
                          <div className="flex justify-between items-center mt-auto"><span className="text-sky-600 font-black text-sm">{formatMoney(p.price).split(" ")[0]}</span><span className="text-[8px] font-black text-slate-300">STK: {p.stock}</span></div>
                       </button>
                    ))}
@@ -492,7 +518,7 @@ const App: React.FC = () => {
         </div>
       )}
 
-      {/* COMPREHENSIVE PROMO MODAL */}
+      {/* PROMO MODAL */}
       {isPromoModalOpen && (
         <div className="fixed inset-0 bg-slate-950/90 z-[600] flex items-center justify-center p-6 backdrop-blur-xl animate-in zoom-in-95">
           <Card className="w-full max-w-2xl p-10 relative max-h-[90vh] overflow-y-auto custom-scrollbar">
@@ -510,9 +536,9 @@ const App: React.FC = () => {
                 setIsPromoModalOpen(false);
              }} className="space-y-6">
                 <div className="grid grid-cols-2 gap-4">
-                   <div><label className="text-[10px] font-black text-slate-400 uppercase">Promo Label</label><input name="name" required defaultValue={editingPromo?.name} className="w-full p-4 bg-slate-50 border rounded-xl font-bold" /></div>
+                   <div><label className="text-[10px] font-black text-slate-400 uppercase">Promo Label</label><input name="name" required defaultValue={editingPromo?.name} className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none focus:border-sky-500 transition-all" /></div>
                    <div><label className="text-[10px] font-black text-slate-400 uppercase">Target Item</label>
-                      <select name="productId" required defaultValue={editingPromo?.targetProductId} className="w-full p-4 bg-slate-50 border rounded-xl font-bold">
+                      <select name="productId" required defaultValue={editingPromo?.targetProductId} className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none focus:border-sky-500 transition-all">
                         <option value="">Select a Product...</option>
                         {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                       </select>
@@ -520,11 +546,11 @@ const App: React.FC = () => {
                 </div>
                 <div className="space-y-3">
                    {Array.from({length: 7}).map((_, i) => (
-                      <div key={i} className="flex gap-4 items-center bg-slate-50 p-4 rounded-2xl border">
+                      <div key={i} className="flex gap-4 items-center bg-slate-50 p-4 rounded-3xl border border-slate-200">
                          <span className="w-12 font-black text-slate-300">Tier {i+1}</span>
-                         <input name={`qty_${i+1}`} type="number" placeholder="Min Qty" defaultValue={editingPromo?.tiers?.[i]?.minQty} className="flex-1 p-3 bg-white border rounded-xl font-bold text-center" />
+                         <input name={`qty_${i+1}`} type="number" placeholder="Min Qty" defaultValue={editingPromo?.tiers?.[i]?.minQty} className="flex-1 p-3 bg-white border border-slate-100 rounded-xl font-bold text-center outline-none focus:border-sky-300" />
                          <span className="text-slate-300">→</span>
-                         <input name={`price_${i+1}`} type="number" placeholder="Unit Price" defaultValue={editingPromo?.tiers?.[i]?.unitPrice} className="flex-1 p-3 bg-sky-50 border border-sky-100 rounded-xl font-black text-sky-600 text-center" />
+                         <input name={`price_${i+1}`} type="number" placeholder="Unit Price" defaultValue={editingPromo?.tiers?.[i]?.unitPrice} className="flex-1 p-3 bg-sky-50 border border-sky-100 rounded-xl font-black text-sky-600 text-center outline-none focus:border-sky-300" />
                       </div>
                    ))}
                 </div>
@@ -550,16 +576,16 @@ const App: React.FC = () => {
                 if (db) await setDoc(doc(db, 'products', p.id), p);
                 setIsProductModalOpen(false);
              }} className="space-y-6">
-                <div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Product Name</label><input name="name" required defaultValue={editingProduct?.name} className="w-full p-4 bg-slate-50 border rounded-xl font-bold" /></div>
-                <div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">SKU Code</label><input name="code" required defaultValue={editingProduct?.code} className="w-full p-4 bg-slate-50 border rounded-xl font-bold" /></div>
+                <div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Product Name</label><input name="name" required defaultValue={editingProduct?.name} className="w-full p-4 bg-slate-50 border rounded-xl font-bold outline-none focus:border-sky-500 transition-all" /></div>
+                <div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">SKU Code</label><input name="code" required defaultValue={editingProduct?.code} className="w-full p-4 bg-slate-50 border rounded-xl font-bold outline-none focus:border-sky-500 transition-all" /></div>
                 <div className="grid grid-cols-2 gap-4">
-                   <div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Cost</label><input name="cost" type="number" required defaultValue={editingProduct?.cost} className="w-full p-4 bg-slate-50 border rounded-xl font-bold" /></div>
-                   <div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Retail Price</label><input name="price" type="number" required defaultValue={editingProduct?.price} className="w-full p-4 bg-sky-50 border-2 border-sky-100 rounded-xl font-black text-sky-600 text-xl" /></div>
+                   <div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Cost</label><input name="cost" type="number" required defaultValue={editingProduct?.cost} className="w-full p-4 bg-slate-50 border rounded-xl font-bold outline-none focus:border-sky-500 transition-all" /></div>
+                   <div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Retail Price</label><input name="price" type="number" required defaultValue={editingProduct?.price} className="w-full p-4 bg-sky-50 border-2 border-sky-100 rounded-xl font-black text-sky-600 text-xl outline-none focus:border-sky-500 transition-all" /></div>
                 </div>
-                <div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Initial Stock</label><input name="stock" type="number" required defaultValue={editingProduct?.stock} className="w-full p-4 bg-slate-50 border rounded-xl font-bold" /></div>
+                <div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Initial Stock</label><input name="stock" type="number" required defaultValue={editingProduct?.stock} className="w-full p-4 bg-slate-50 border rounded-xl font-bold outline-none focus:border-sky-500 transition-all" /></div>
                 <div className="flex gap-4 pt-4">
                    <button type="button" onClick={()=>setIsProductModalOpen(false)} className="flex-1 py-5 bg-slate-100 text-slate-500 rounded-2xl font-black uppercase text-xs tracking-widest">Cancel</button>
-                   <button type="submit" className="flex-[2] py-5 bg-sky-600 text-white rounded-2xl font-black text-lg shadow-xl uppercase tracking-widest">Save Product</button>
+                   <button type="submit" className="flex-[2] py-5 bg-sky-600 text-white rounded-2xl font-black text-lg shadow-xl uppercase tracking-widest active:scale-95 transition-all">Save Product</button>
                 </div>
              </form>
           </Card>
