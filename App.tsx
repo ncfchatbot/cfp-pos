@@ -55,6 +55,9 @@ const App: React.FC = () => {
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [isPromoModalOpen, setIsPromoModalOpen] = useState(false);
   const [editingPromo, setEditingPromo] = useState<Promotion | null>(null);
+  
+  // Promotion Multi-SKU logic
+  const [promoSkusInput, setPromoSkusInput] = useState('');
 
   const t = translations[language];
 
@@ -82,7 +85,6 @@ const App: React.FC = () => {
   };
 
   const getProductPrice = (product: Product, quantity: number) => {
-    // แก้ไขให้ค้นหาจาก targetProductIds
     const promo = promotions.find(p => p.targetProductIds.includes(product.id) && p.isActive);
     if (!promo || !promo.tiers || !promo.tiers.length) return product.price;
     const sortedTiers = [...promo.tiers].sort((a, b) => b.minQty - a.minQty);
@@ -134,96 +136,43 @@ const App: React.FC = () => {
     } catch (err: any) { alert("Error: " + err.message); }
   };
 
-  const cancelOrder = async (order: SaleRecord) => {
-    if (!confirm("ยกเลิกบิลนี้? บิลจะถูกลบและคืนสต็อกสินค้าอัตโนมัติ / ຍົກເລີກບິນນີ້?")) return;
-    try {
-      if (!db) return;
-      // 1. คืนสต็อก
-      for (const item of order.items) {
-        const p = products.find(x => x.id === item.id);
-        if (p) await setDoc(doc(db, 'products', p.id), { ...p, stock: p.stock + item.quantity });
-      }
-      // 2. ลบบิล (หรือเปลี่ยนสถานะเป็น Cancelled)
-      await setDoc(doc(db, 'sales', order.id), { ...order, status: 'Cancelled' });
-      alert("Order Cancelled and Stock Returned");
-    } catch (err: any) { alert(err.message); }
-  };
-
   const exportRawData = () => {
-    const headers = ["OrderID", "Date", "Customer", "Phone", "Address", "Payment", "Status", "Item", "Qty", "Price", "Total"];
+    const headers = ["OrderID", "Date", "Customer", "Phone", "Address", "Payment", "Status", "Item", "Qty", "Cost/Unit", "Price/Unit", "Total Bill"];
     const rows = recentSales.flatMap(s => 
-      s.items.map(i => [
-        s.id, s.date, s.customerName || "-", s.customerPhone || "-", `"${s.customerAddress || "-"}"`,
-        s.paymentMethod, s.status, i.name, i.quantity, i.price, s.total
-      ])
+      s.items.map(i => {
+        const p = products.find(x => x.id === i.id);
+        return [
+          s.id, s.date, s.customerName || "-", s.customerPhone || "-", `"${s.customerAddress || "-"}"`,
+          s.paymentMethod, s.status, i.name, i.quantity, (p?.cost || 0), i.price, s.total
+        ]
+      })
     );
     const csvContent = "\ufeff" + [headers, ...rows].map(e => e.join(",")).join("\n");
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement("a");
     link.href = URL.createObjectURL(blob);
-    link.download = `CoffeePOS_Sales_RawData_${new Date().toISOString().slice(0,10)}.csv`;
+    link.download = `CoffeePOS_RawData_${new Date().toISOString().slice(0,10)}.csv`;
     link.click();
   };
 
-  const handleBulkImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, callback: (url: string) => void) => {
     const file = e.target.files?.[0];
-    if (!file || !db) return;
+    if (!file) return;
     const reader = new FileReader();
-    reader.onload = async (ev) => {
-      const content = ev.target?.result as string;
-      const lines = content.split('\n').filter(l => l.trim() !== '');
-      if (lines.length < 2) return;
-      const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
-      for (let i = 1; i < lines.length; i++) {
-        const values = lines[i].split(',');
-        const p: any = { id: uuidv4(), color: 'bg-sky-500' };
-        headers.forEach((h, idx) => {
-          if (['price', 'cost', 'stock'].includes(h)) p[h] = Number(values[idx]);
-          else p[h] = values[idx]?.trim();
-        });
-        await setDoc(doc(db, 'products', p.id), p);
-      }
-      alert("Imported successfully");
-    };
-    reader.readAsText(file);
-  };
-
-  const handleSendMessage = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!inputText.trim() || isTyping) return;
-    const userMsg: Message = { id: uuidv4(), role: Role.USER, text: inputText, timestamp: Date.now() };
-    setMessages(prev => [...prev, userMsg]);
-    setInputText('');
-    setIsTyping(true);
-    try {
-      const history = messages.map(m => ({ role: m.role === Role.MODEL ? 'model' : 'user', parts: [{ text: m.text }] }));
-      const stream = await streamResponse(inputText, mode, history);
-      if (stream) {
-        const assistantMsg: Message = { id: uuidv4(), role: Role.MODEL, text: '', timestamp: Date.now() };
-        setMessages(prev => [...prev, assistantMsg]);
-        let fullText = '';
-        for await (const chunk of stream) {
-          const text = chunk.text;
-          if (text) {
-            fullText += text;
-            setMessages(prev => prev.map(m => m.id === assistantMsg.id ? { ...m, text: fullText } : m));
-          }
-        }
-      }
-    } catch (error) {
-      setMessages(prev => [...prev, { id: uuidv4(), role: Role.MODEL, text: 'Error connecting to AI', timestamp: Date.now(), isError: true }]);
-    } finally { setIsTyping(false); }
+    reader.onload = (ev) => callback(ev.target?.result as string);
+    reader.readAsDataURL(file);
   };
 
   // --- REPORT CALCULATIONS ---
   const reportStats = useMemo(() => {
     const validSales = recentSales.filter(s => s.status !== 'Cancelled');
-    const totalRevenue = validSales.reduce((a, b) => a + b.total, 0);
-    const stockValue = products.reduce((a, b) => a + (b.cost * b.stock), 0);
+    const totalRevenue = validSales.reduce((a, b) => a + Number(b.total || 0), 0);
+    // Fix NaN: Ensure we cast to Number and handle undefined
+    const stockValue = products.reduce((a, b) => a + (Number(b.cost || 0) * Number(b.stock || 0)), 0);
     const totalCost = validSales.reduce((acc, sale) => {
       return acc + sale.items.reduce((itemAcc, item) => {
         const original = products.find(p => p.id === item.id);
-        return itemAcc + ((original?.cost || 0) * item.quantity);
+        return itemAcc + (Number(original?.cost || 0) * Number(item.quantity || 0));
       }, 0);
     }, 0);
     
@@ -248,22 +197,10 @@ const App: React.FC = () => {
         <header className="bg-white border-b px-8 py-4 flex items-center justify-between shadow-sm z-10">
           <button onClick={() => setIsSidebarOpen(true)} className="md:hidden p-2 text-slate-400"><LayoutDashboard /></button>
           <div className="flex items-center gap-3">
-             <div className="w-10 h-10 bg-slate-100 rounded-xl flex items-center justify-center border">
-                {storeProfile.logoUrl ? <img src={storeProfile.logoUrl} className="w-full h-full object-cover rounded-xl" alt="Logo" /> : <Coffee size={20} className="text-slate-400"/>}
+             <div className="w-10 h-10 bg-slate-100 rounded-xl flex items-center justify-center border overflow-hidden">
+                {storeProfile.logoUrl ? <img src={storeProfile.logoUrl} className="w-full h-full object-cover" /> : <Coffee size={20} className="text-slate-400"/>}
              </div>
              <h2 className="font-black text-slate-800 uppercase tracking-tight">{t[`menu_${mode}`] || mode}</h2>
-          </div>
-          <div className="flex items-center gap-4">
-             <div className="text-right hidden sm:block">
-                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">{storeProfile.name}</p>
-                <div className="flex items-center gap-1 justify-end">
-                   <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></div>
-                   <p className="text-[9px] text-emerald-600 font-bold uppercase">Online</p>
-                </div>
-             </div>
-             <div className="w-10 h-10 rounded-full bg-slate-100 border-2 border-white shadow-sm overflow-hidden">
-                <img src={storeProfile.logoUrl || `https://ui-avatars.com/api/?name=${storeProfile.name}&background=0ea5e9&color=fff`} alt="store" />
-             </div>
           </div>
         </header>
 
@@ -293,46 +230,29 @@ const App: React.FC = () => {
               <div className="space-y-6 animate-in slide-in-from-bottom-5">
                  <div className="flex justify-between items-center">
                     <h2 className="text-2xl font-black text-slate-800 flex items-center gap-3"><ClipboardList className="text-sky-500"/> {t.menu_orders}</h2>
-                    <button onClick={() => setIsBillModalOpen(true)} className="bg-slate-900 text-white px-8 py-4 rounded-2xl font-black hover:bg-black transition-all shadow-xl active:scale-95 flex items-center gap-2">
+                    <button onClick={() => setIsBillModalOpen(true)} className="bg-sky-600 text-white px-8 py-4 rounded-2xl font-black hover:bg-sky-700 transition-all shadow-xl active:scale-95 flex items-center gap-2">
                        <Plus size={20}/> {t.order_create_bill}
                     </button>
                  </div>
                  <div className="bg-white rounded-[2.5rem] border overflow-hidden shadow-sm overflow-x-auto">
                     <table className="w-full text-left min-w-[800px]">
                        <thead className="bg-slate-50 border-b text-[10px] font-black uppercase text-slate-400 tracking-widest">
-                          <tr>
-                            <th className="px-8 py-5">Date / Bill</th>
-                            <th className="px-8 py-5">Customer</th>
-                            <th className="px-8 py-5 text-center">Payment</th>
-                            <th className="px-8 py-5 text-right">Total</th>
-                            <th className="px-8 py-5 text-center">Status</th>
-                            <th className="px-8 py-5 text-center">Action</th>
-                          </tr>
+                          <tr><th className="px-8 py-5">Bill / Customer</th><th className="px-8 py-5 text-center">Payment</th><th className="px-8 py-5 text-right">Total</th><th className="px-8 py-5 text-center">Status</th><th className="px-8 py-5 text-center">Action</th></tr>
                        </thead>
                        <tbody className="divide-y text-sm font-bold">
                           {recentSales.map(s => (
-                            <tr key={s.id} className={`hover:bg-slate-50 transition-colors ${s.status === 'Cancelled' ? 'opacity-40 grayscale' : ''}`}>
-                               <td className="px-8 py-5"><div className="text-slate-800">{s.date}</div><div className="text-[10px] text-slate-300">#{s.id.slice(0,8)}</div></td>
+                            <tr key={s.id} className={`hover:bg-slate-50 transition-colors ${s.status === 'Cancelled' ? 'opacity-40' : ''}`}>
                                <td className="px-8 py-5">
-                                 <div className="text-slate-800">{s.customerName || '-'}</div>
-                                 <div className="text-[10px] text-slate-400 font-medium">{s.shippingCarrier !== 'None' ? `${s.shippingCarrier} | ${s.shippingBranch}` : 'Takeaway'}</div>
+                                 <div className="text-slate-800">#{s.id.slice(0,8)} | {s.customerName || '-'}</div>
+                                 <div className="text-[10px] text-slate-300 font-medium">{s.date}</div>
                                </td>
-                               <td className="px-8 py-5 text-center">
-                                 <span className="text-[10px] px-2 py-1 bg-slate-100 rounded-md uppercase font-black">{s.paymentMethod}</span>
-                               </td>
+                               <td className="px-8 py-5 text-center"><span className="px-2 py-1 bg-slate-100 rounded text-[10px] uppercase font-black">{s.paymentMethod}</span></td>
                                <td className="px-8 py-5 text-right text-sky-600 font-black">{formatMoney(s.total)}</td>
                                <td className="px-8 py-5 text-center">
-                                 <span className={`px-3 py-1 rounded-lg text-[10px] uppercase font-black ${
-                                   s.status === 'Paid' ? 'bg-emerald-100 text-emerald-600' : 
-                                   s.status === 'Cancelled' ? 'bg-slate-100 text-slate-400' : 'bg-amber-100 text-amber-600'
-                                 }`}>{s.status}</span>
+                                 <span className={`px-3 py-1 rounded-lg text-[10px] uppercase font-black ${s.status === 'Paid' ? 'bg-emerald-100 text-emerald-600' : s.status === 'Cancelled' ? 'bg-rose-100 text-rose-600' : 'bg-amber-100 text-amber-600'}`}>{s.status}</span>
                                </td>
                                <td className="px-8 py-5 text-center">
-                                 {s.status !== 'Cancelled' && (
-                                   <button onClick={() => cancelOrder(s)} className="p-2 text-rose-300 hover:text-rose-600 transition-colors">
-                                     <Trash2 size={18}/>
-                                   </button>
-                                 )}
+                                 {s.status !== 'Cancelled' && <button onClick={async () => { if(confirm('Cancel Order?')) await setDoc(doc(db, 'sales', s.id), {...s, status: 'Cancelled'}); }} className="p-2 text-rose-300 hover:text-rose-600"><Trash2 size={18}/></button>}
                                </td>
                             </tr>
                           ))}
@@ -346,27 +266,21 @@ const App: React.FC = () => {
               <div className="space-y-6 animate-in slide-in-from-bottom-5">
                  <div className="flex justify-between items-center">
                     <h2 className="text-2xl font-black text-slate-800 flex items-center gap-3"><Package className="text-sky-500"/> {t.stock_title}</h2>
-                    <div className="flex gap-4">
-                      <label className="bg-white border text-slate-600 px-6 py-4 rounded-2xl font-black cursor-pointer hover:bg-slate-50 flex items-center gap-2">
-                        <FileUp size={18}/> Bulk Upload
-                        <input type="file" className="hidden" accept=".csv" onChange={handleBulkImport} />
-                      </label>
-                      <button onClick={()=>{setEditingProduct(null); setIsProductModalOpen(true);}} className="bg-slate-900 text-white px-8 py-4 rounded-2xl font-black hover:bg-black transition-all">
-                        {t.stock_add}
-                      </button>
-                    </div>
+                    <button onClick={()=>{setEditingProduct(null); setIsProductModalOpen(true);}} className="bg-sky-600 text-white px-8 py-4 rounded-2xl font-black hover:bg-sky-700 transition-all">
+                       {t.stock_add}
+                    </button>
                  </div>
                  <div className="bg-white rounded-[2.5rem] border overflow-hidden shadow-sm">
                     <table className="w-full text-left">
                        <thead className="bg-slate-50 border-b text-[10px] font-black uppercase text-slate-400 tracking-widest">
-                          <tr><th className="px-8 py-5">Item</th><th className="px-8 py-5 text-right">Cost</th><th className="px-8 py-5 text-right">Retail</th><th className="px-8 py-5 text-center">In Stock</th><th className="px-8 py-5 text-center">Edit</th></tr>
+                          <tr><th className="px-8 py-5">Item</th><th className="px-8 py-5 text-right">Cost</th><th className="px-8 py-5 text-right">Price</th><th className="px-8 py-5 text-center">In Stock</th><th className="px-8 py-5 text-center">Edit</th></tr>
                        </thead>
                        <tbody className="divide-y text-sm font-bold">
                           {products.map(p => (
                             <tr key={p.id} className="hover:bg-slate-50 transition-colors">
                                <td className="px-8 py-5 flex items-center gap-4">
-                                  <div className="w-12 h-12 rounded-xl bg-slate-100 overflow-hidden flex items-center justify-center border shadow-inner">
-                                    {p.imageUrl ? <img src={p.imageUrl} className="w-full h-full object-cover" /> : <div className={`w-full h-full ${p.color} flex items-center justify-center text-white font-black`}>{p.name.charAt(0)}</div>}
+                                  <div className="w-12 h-12 rounded-xl bg-slate-100 border overflow-hidden flex items-center justify-center">
+                                    {p.imageUrl ? <img src={p.imageUrl} className="w-full h-full object-cover" /> : <div className={`w-full h-full ${p.color} text-white flex items-center justify-center font-black`}>{p.name.charAt(0)}</div>}
                                   </div>
                                   <div><div className="text-slate-800">{p.name}</div><div className="text-[10px] text-slate-300">SKU: {p.code}</div></div>
                                </td>
@@ -386,30 +300,22 @@ const App: React.FC = () => {
               <div className="space-y-6 animate-in slide-in-from-bottom-5">
                 <div className="flex justify-between items-center">
                     <h2 className="text-2xl font-black text-slate-800 flex items-center gap-3"><Tag className="text-sky-500"/> {t.menu_promotions}</h2>
-                    <button onClick={()=>{setEditingPromo(null); setIsPromoModalOpen(true);}} className="bg-sky-600 text-white px-8 py-4 rounded-2xl font-black shadow-xl hover:bg-sky-700 transition-all flex items-center gap-2">
+                    <button onClick={()=>{setEditingPromo(null); setPromoSkusInput(''); setIsPromoModalOpen(true);}} className="bg-sky-600 text-white px-8 py-4 rounded-2xl font-black shadow-xl hover:bg-sky-700 transition-all">
                        <Plus size={20}/> {t.promo_add}
                     </button>
                  </div>
                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                     {promotions.map(promo => (
                       <div key={promo.id} className="bg-white p-8 rounded-[2.5rem] border shadow-sm relative group hover:border-sky-500 transition-all">
-                          <button onClick={async () => { if(confirm('Delete?') && db) await deleteDoc(doc(db, 'promotions', promo.id)); }} className="absolute top-6 right-6 p-2 text-slate-200 hover:text-rose-500 transition-colors"><Trash2 size={18}/></button>
-                          <h4 className="font-black text-slate-800 text-lg mb-2">{promo.name}</h4>
+                          <button onClick={async () => { if(confirm('Delete?')) await deleteDoc(doc(db, 'promotions', promo.id)); }} className="absolute top-6 right-6 p-2 text-slate-200 hover:text-rose-500"><Trash2 size={18}/></button>
+                          <h4 className="font-black text-slate-800 mb-2">{promo.name}</h4>
                           <div className="flex flex-wrap gap-1 mb-6">
-                            {promo.targetProductIds.map(pid => {
-                              const p = products.find(x=>x.id===pid);
-                              return p ? <span key={pid} className="px-2 py-0.5 bg-sky-50 text-sky-600 rounded-md text-[9px] font-bold">#{p.code}</span> : null;
+                            {promo.targetProductIds.map(id => {
+                              const p = products.find(x=>x.id===id);
+                              return p ? <span key={id} className="text-[10px] px-2 py-1 bg-sky-50 text-sky-600 rounded font-bold">#{p.code}</span> : null;
                             })}
                           </div>
-                          <div className="space-y-2 bg-slate-50 p-4 rounded-3xl mb-4 border border-slate-100 shadow-inner">
-                            {promo.tiers?.map((tier, idx) => (
-                                <div key={idx} className="flex justify-between items-center text-sm py-1 border-b last:border-0 border-slate-200">
-                                  <span className="font-bold text-slate-400">{tier.minQty}+ Units</span>
-                                  <span className="font-black text-sky-600">{formatMoney(tier.unitPrice)}</span>
-                                </div>
-                            ))}
-                          </div>
-                          <button onClick={()=>{setEditingPromo(promo); setIsPromoModalOpen(true);}} className="w-full py-4 bg-slate-100 rounded-2xl text-[10px] font-black text-slate-600 hover:bg-sky-600 hover:text-white transition-all uppercase tracking-widest">Edit Details</button>
+                          <button onClick={()=>{setEditingPromo(promo); setPromoSkusInput(promo.targetProductIds.map(id=>products.find(x=>x.id===id)?.code).join(', ')); setIsPromoModalOpen(true);}} className="w-full py-4 bg-slate-50 rounded-2xl text-[10px] font-black text-slate-500 uppercase tracking-widest hover:bg-sky-600 hover:text-white transition-all">Edit</button>
                       </div>
                     ))}
                  </div>
@@ -419,50 +325,51 @@ const App: React.FC = () => {
             {mode === AppMode.REPORTS && (
               <div className="space-y-8 animate-in fade-in">
                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    <Card className="bg-gradient-to-br from-sky-500 to-sky-600 text-white border-0 shadow-sky-200 shadow-xl">
-                       <p className="text-[10px] font-black uppercase tracking-widest opacity-80 mb-1">TOTAL REVENUE</p>
+                    <Card className="bg-sky-600 text-white border-0 shadow-xl">
+                       <p className="text-[10px] font-black uppercase tracking-widest opacity-80 mb-1">REVENUE</p>
                        <h3 className="text-4xl font-black">{formatMoney(reportStats.totalRevenue)}</h3>
                     </Card>
-                    <Card className="bg-white border-slate-200">
-                       <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">TOTAL PROFIT</p>
+                    <Card className="bg-white">
+                       <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">PROFIT</p>
                        <h3 className="text-4xl font-black text-emerald-600">{formatMoney(reportStats.profit)}</h3>
                     </Card>
-                    <Card className="bg-white border-slate-200 relative overflow-hidden">
+                    <Card className="bg-white">
                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">STOCK ASSET</p>
                        <h3 className="text-4xl font-black text-slate-800">{formatMoney(reportStats.stockValue)}</h3>
-                       <div className="absolute -bottom-2 -right-2 opacity-5"><Package size={80}/></div>
                     </Card>
                  </div>
                  <div className="flex justify-end">
-                    <button onClick={exportRawData} className="flex items-center gap-2 px-8 py-4 bg-emerald-600 text-white rounded-2xl font-black shadow-xl hover:bg-emerald-700 transition-all uppercase text-xs">
-                       <FileDown size={18}/> {t.report_export_raw}
+                    <button onClick={exportRawData} className="bg-emerald-600 text-white px-8 py-4 rounded-2xl font-black flex items-center gap-2 hover:bg-emerald-700 transition-all shadow-xl">
+                       <FileDown size={20}/> {t.report_export_raw}
                     </button>
                  </div>
-                 <Card>
-                    <h4 className="text-sm font-black text-slate-800 uppercase tracking-widest mb-8 flex items-center gap-2"><PieChart size={18} className="text-sky-500"/> BEST SELLERS</h4>
-                    <div className="space-y-6">
-                       {reportStats.topProducts.map((p, idx) => {
-                          const maxQty = reportStats.topProducts[0]?.qty || 1;
-                          const percentage = (p.qty / maxQty) * 100;
-                          return (
-                             <div key={idx} className="space-y-2">
-                                <div className="flex justify-between items-end">
-                                   <span className="text-sm font-black text-slate-800">{p.name}</span>
-                                   <span className="text-xs font-bold text-sky-600">{p.qty} Units</span>
-                                </div>
-                                <div className="w-full h-3 bg-slate-50 rounded-full overflow-hidden border">
-                                   <div className="h-full bg-sky-500 rounded-full transition-all duration-1000" style={{ width: `${percentage}%` }}></div>
-                                </div>
-                             </div>
-                          )
-                       })}
-                    </div>
-                 </Card>
               </div>
             )}
-            
-            {/* AI Assistant View (Omitted for brevity, assuming same as before) */}
 
+            {mode === AppMode.SETTINGS && (
+              <div className="animate-in fade-in">
+                <Card className="max-w-2xl">
+                  <h3 className="text-2xl font-black text-slate-800 mb-8 flex items-center gap-3"><Settings className="text-sky-500"/> {t.menu_settings}</h3>
+                  <div className="space-y-6">
+                    <div><label className="text-[10px] font-black text-slate-400 uppercase ml-1">{t.setting_shop_name}</label><input value={storeProfile.name} onChange={e=>setStoreProfile({...storeProfile, name: e.target.value})} className="w-full p-4 bg-slate-50 border rounded-2xl font-bold" /></div>
+                    <div>
+                      <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Store Logo</label>
+                      <div className="flex items-center gap-4 mt-2">
+                        <div className="w-20 h-20 rounded-2xl bg-slate-100 border overflow-hidden flex items-center justify-center">
+                           {storeProfile.logoUrl ? <img src={storeProfile.logoUrl} className="w-full h-full object-cover" /> : <ImageIcon className="text-slate-300" />}
+                        </div>
+                        <label className="cursor-pointer px-4 py-2 bg-white border rounded-xl text-xs font-black uppercase text-slate-600 hover:bg-slate-50">
+                          Upload Logo
+                          <input type="file" className="hidden" accept="image/*" onChange={e => handleImageUpload(e, (url) => setStoreProfile({...storeProfile, logoUrl: url}))} />
+                        </label>
+                      </div>
+                    </div>
+                    <div><label className="text-[10px] font-black text-slate-400 uppercase ml-1">{t.setting_address}</label><textarea value={storeProfile.address} onChange={e=>setStoreProfile({...storeProfile, address: e.target.value})} className="w-full p-4 bg-slate-50 border rounded-2xl font-bold h-24" /></div>
+                    <button onClick={()=>{localStorage.setItem('pos_profile', JSON.stringify(storeProfile)); alert('Saved');}} className="w-full py-5 bg-sky-600 text-white rounded-2xl font-black uppercase shadow-xl hover:bg-sky-700 active:scale-95 transition-all">Save Changes</button>
+                  </div>
+                </Card>
+              </div>
+            )}
           </div>
         </div>
       </main>
@@ -470,29 +377,19 @@ const App: React.FC = () => {
       {/* MODALS */}
       {isBillModalOpen && (
         <div className="fixed inset-0 bg-slate-950/90 z-[500] flex items-center justify-center p-4 backdrop-blur-xl animate-in zoom-in-95">
-          <div className="bg-white w-full max-w-[95vw] h-[95vh] rounded-[4rem] shadow-2xl flex flex-col md:flex-row overflow-hidden border border-white/20">
-             <div className="w-full md:w-[40%] bg-slate-50 border-r flex flex-col h-full overflow-hidden p-8">
+          <div className="bg-white w-full max-w-[95vw] h-[95vh] rounded-[4rem] shadow-2xl flex flex-col md:flex-row overflow-hidden">
+             <div className="w-full md:w-[40%] bg-slate-50 border-r flex flex-col h-full p-8">
                 <div className="flex justify-between items-center mb-6">
                    <h3 className="text-2xl font-black text-slate-800 flex items-center gap-3"><ShoppingCart className="text-sky-500"/> {t.order_create_bill}</h3>
                    <button onClick={()=>setIsBillModalOpen(false)} className="p-3 bg-slate-100 rounded-full hover:bg-rose-500 hover:text-white transition-all"><X size={20}/></button>
                 </div>
-                
-                <div className="grid grid-cols-2 gap-3 mb-6">
-                  <input value={customerName} onChange={e=>setCustomerName(e.target.value)} placeholder={t.order_cust_name} className="p-3 bg-white border rounded-xl font-bold outline-none" />
-                  <input value={customerPhone} onChange={e=>setCustomerPhone(e.target.value)} placeholder={t.order_cust_phone} className="p-3 bg-white border rounded-xl font-bold outline-none" />
-                  <div className="col-span-2"><textarea value={customerAddress} onChange={e=>setCustomerAddress(e.target.value)} placeholder={t.order_cust_addr} className="w-full p-3 bg-white border rounded-xl font-bold outline-none h-16" /></div>
-                  <select value={paymentMethod} onChange={e=>setPaymentMethod(e.target.value as any)} className="p-3 bg-white border rounded-xl font-bold outline-none">
-                    <option value="Transfer">Transfer</option>
-                    <option value="COD">COD</option>
-                  </select>
-                  <select value={shippingCarrier} onChange={e=>setShippingCarrier(e.target.value as any)} className="p-3 bg-white border rounded-xl font-bold outline-none">
-                    <option value="None">No Shipping</option>
-                    <option value="Anuchit">Anuchit</option>
-                    <option value="Meexai">Meexai</option>
-                    <option value="Rungarun">Rungarun</option>
-                  </select>
+                <div className="space-y-4 mb-6">
+                   <input value={customerName} onChange={e=>setCustomerName(e.target.value)} placeholder={t.order_cust_name} className="w-full p-3 bg-white border rounded-xl font-bold" />
+                   <div className="grid grid-cols-2 gap-3">
+                      <select value={paymentMethod} onChange={e=>setPaymentMethod(e.target.value as any)} className="p-3 bg-white border rounded-xl font-bold"><option value="Transfer">โอนเงิน</option><option value="COD">COD</option></select>
+                      <select value={shippingCarrier} onChange={e=>setShippingCarrier(e.target.value as any)} className="p-3 bg-white border rounded-xl font-bold"><option value="None">หน้าร้าน</option><option value="Anuchit">Anuchit</option><option value="Meexai">Meexai</option></select>
+                   </div>
                 </div>
-
                 <div className="flex-1 overflow-y-auto space-y-3 custom-scrollbar pr-2">
                    {billItems.map(it => (
                       <div key={it.id} className="flex items-center gap-4 p-4 bg-white rounded-3xl border shadow-sm">
@@ -500,36 +397,31 @@ const App: React.FC = () => {
                             {it.imageUrl ? <img src={it.imageUrl} /> : <div className={`w-full h-full ${it.color} text-white flex items-center justify-center`}>{it.name.charAt(0)}</div>}
                          </div>
                          <div className="flex-1 min-w-0"><div className="text-xs font-black text-slate-800 truncate">{it.name}</div><div className="text-xs font-bold text-sky-600">{formatMoney(it.price)}</div></div>
-                         <div className="flex items-center gap-2 bg-slate-50 p-1.5 rounded-xl border">
-                            <button onClick={()=>updateCartQuantity(it.id, it.quantity - 1)} className="p-1 hover:text-sky-600"><Minus size={14}/></button>
-                            <span className="w-8 text-center font-black">{it.quantity}</span>
-                            <button onClick={()=>updateCartQuantity(it.id, it.quantity + 1)} className="p-1 hover:text-sky-600"><Plus size={14}/></button>
+                         <div className="flex items-center gap-2 bg-slate-50 p-1 rounded-xl">
+                            <button onClick={()=>updateCartQuantity(it.id, it.quantity - 1)} className="p-2"><Minus size={14}/></button>
+                            <input type="number" value={it.quantity} onChange={(e)=>updateCartQuantity(it.id, parseInt(e.target.value)||1)} className="w-12 text-center bg-transparent font-black" />
+                            <button onClick={()=>updateCartQuantity(it.id, it.quantity + 1)} className="p-2"><Plus size={14}/></button>
                          </div>
                          <button onClick={()=>setBillItems(p=>p.filter(x=>x.id!==it.id))} className="p-2 text-rose-300 hover:text-rose-600"><Trash2 size={16}/></button>
                       </div>
                    ))}
                 </div>
-                
-                <div className="p-6 bg-white rounded-[2rem] shadow-xl mt-4">
-                   <div className="flex justify-between items-center mb-6">
-                      <span className="text-sm font-black text-slate-400">TOTAL</span>
-                      <span className="text-3xl font-black text-sky-600">{formatMoney(billItems.reduce((s,i)=>s+(i.price*i.quantity),0))}</span>
-                   </div>
-                   <button onClick={handleCheckout} disabled={billItems.length===0} className="w-full py-5 bg-sky-600 text-white rounded-2xl font-black text-xl hover:bg-sky-700 transition-all uppercase active:scale-95">CHECKOUT</button>
+                <div className="mt-4 p-6 bg-white rounded-[2.5rem] shadow-xl">
+                   <div className="flex justify-between items-center mb-4"><span className="text-xs font-black text-slate-400">TOTAL</span><span className="text-3xl font-black text-sky-600">{formatMoney(billItems.reduce((s,i)=>s+(i.price*i.quantity),0))}</span></div>
+                   <button onClick={handleCheckout} className="w-full py-5 bg-sky-600 text-white rounded-2xl font-black text-xl hover:bg-sky-700 shadow-xl active:scale-95 transition-all">CHECKOUT</button>
                 </div>
              </div>
-             
-             <div className="flex-1 p-8 overflow-hidden flex flex-col bg-white">
-                <div className="mb-6"><div className="relative"><Search className="absolute left-4 top-4 text-slate-300" size={20}/><input value={skuSearch} onChange={e=>setSkuSearch(e.target.value)} placeholder={t.search_sku} className="w-full p-4 pl-12 bg-slate-50 border rounded-2xl font-bold outline-none" /></div></div>
-                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 overflow-y-auto custom-scrollbar pr-2">
-                   {products.filter(p => !skuSearch || p.name.toLowerCase().includes(skuSearch.toLowerCase()) || p.code.toLowerCase().includes(skuSearch.toLowerCase())).map(p => (
-                      <button key={p.id} onClick={()=>addToCart(p)} className="bg-white p-4 rounded-[2.5rem] border shadow-sm hover:border-sky-500 transition-all flex flex-col group h-fit text-left active:scale-95">
-                         <div className="w-full aspect-square rounded-[2rem] bg-slate-100 mb-3 flex items-center justify-center overflow-hidden shadow-lg border relative">
+             <div className="flex-1 p-8 overflow-hidden flex flex-col">
+                <div className="relative mb-6"><Search className="absolute left-4 top-4 text-slate-300" size={20}/><input value={skuSearch} onChange={e=>setSkuSearch(e.target.value)} placeholder={t.search_sku} className="w-full p-4 pl-12 bg-slate-50 border rounded-2xl font-bold outline-none" /></div>
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 overflow-y-auto custom-scrollbar">
+                   {products.filter(p => !skuSearch || p.name.includes(skuSearch) || p.code.includes(skuSearch)).map(p => (
+                      <button key={p.id} onClick={()=>addToCart(p)} className="bg-white p-4 rounded-[2.5rem] border shadow-sm hover:border-sky-600 transition-all text-left group relative">
+                         <div className="w-full aspect-square rounded-[2rem] bg-slate-100 mb-3 overflow-hidden shadow border">
                             {p.imageUrl ? <img src={p.imageUrl} className="w-full h-full object-cover" /> : <div className={`w-full h-full ${p.color} flex items-center justify-center text-4xl font-black text-white`}>{p.name.charAt(0)}</div>}
-                            <div className="absolute top-2 right-2 bg-black/60 text-white px-2 py-1 rounded-lg text-[10px] font-black">{p.stock}</div>
+                            <div className="absolute top-2 right-2 bg-black/50 text-white text-[10px] px-2 py-1 rounded-lg font-black">{p.stock}</div>
                          </div>
-                         <h4 className="font-black text-slate-800 text-[11px] truncate mb-1">{p.name}</h4>
-                         <span className="text-sky-600 font-black text-sm">{formatMoney(p.price)}</span>
+                         <h4 className="font-black text-slate-800 text-xs truncate mb-1">{p.name}</h4>
+                         <span className="text-sky-600 font-black">{formatMoney(p.price)}</span>
                       </button>
                    ))}
                 </div>
@@ -540,9 +432,9 @@ const App: React.FC = () => {
 
       {isPromoModalOpen && (
         <div className="fixed inset-0 bg-slate-950/90 z-[600] flex items-center justify-center p-6 backdrop-blur-xl animate-in zoom-in-95">
-          <Card className="w-full max-w-3xl p-10 relative max-h-[90vh] overflow-y-auto custom-scrollbar">
-             <button onClick={()=>setIsPromoModalOpen(false)} className="absolute top-6 right-6 p-3 bg-slate-100 rounded-full hover:bg-rose-500 hover:text-white transition-all"><X size={20}/></button>
-             <h3 className="text-2xl font-black mb-8 text-slate-800 flex items-center gap-4"><Tag className="text-sky-500"/> {t.promo_tier_title}</h3>
+          <Card className="w-full max-w-3xl p-10 relative max-h-[90vh] overflow-y-auto">
+             <button onClick={()=>setIsPromoModalOpen(false)} className="absolute top-6 right-6 p-3 bg-slate-100 rounded-full hover:bg-rose-500 hover:text-white"><X size={20}/></button>
+             <h3 className="text-2xl font-black mb-8 text-slate-800 flex items-center gap-3"><Tag className="text-sky-500"/> Promotion Settings</h3>
              <form onSubmit={async (e) => {
                 e.preventDefault(); 
                 const fd = new FormData(e.currentTarget);
@@ -551,41 +443,30 @@ const App: React.FC = () => {
                    const q = fd.get(`qty_${i}`); const pr = fd.get(`price_${i}`);
                    if(q && pr) tiers.push({ minQty: Number(q), unitPrice: Number(pr) });
                 }
-                const selectedIds = Array.from(fd.getAll('productIds')) as string[];
-                const promo = { 
-                  id: editingPromo?.id || uuidv4(), 
-                  name: fd.get('name') as string, 
-                  targetProductIds: selectedIds, 
-                  isActive: true, 
-                  tiers 
-                };
-                if (db) await setDoc(doc(db, 'promotions', promo.id), promo);
+                // Resolve SKUs to IDs
+                const skuList = promoSkusInput.split(',').map(s => s.trim()).filter(Boolean);
+                const selectedIds = products.filter(p => skuList.includes(p.code)).map(p => p.id);
+
+                const promo = { id: editingPromo?.id || uuidv4(), name: fd.get('name') as string, targetProductIds: selectedIds, isActive: true, tiers };
+                await setDoc(doc(db, 'promotions', promo.id), promo);
                 setIsPromoModalOpen(false);
              }} className="space-y-6">
-                <div className="space-y-4">
-                   <div className="space-y-2"><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Promotion Name</label><input name="name" required defaultValue={editingPromo?.name} placeholder="e.g. Bulk Discount A" className="w-full p-4 bg-slate-50 border rounded-2xl font-bold focus:border-sky-500 outline-none" /></div>
-                   <div className="space-y-2">
-                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Select Products (Multi-select)</label>
-                      <div className="max-h-40 overflow-y-auto p-4 bg-slate-50 border rounded-2xl grid grid-cols-2 gap-2">
-                        {products.map(p => (
-                          <label key={p.id} className="flex items-center gap-2 p-2 bg-white rounded-lg border cursor-pointer hover:border-sky-300 transition-colors">
-                            <input type="checkbox" name="productIds" value={p.id} defaultChecked={editingPromo?.targetProductIds.includes(p.id)} className="w-4 h-4 text-sky-600" />
-                            <span className="text-xs font-bold text-slate-700 truncate">{p.name} ({p.code})</span>
-                          </label>
-                        ))}
-                      </div>
-                   </div>
+                <div><label className="text-[10px] font-black text-slate-400 uppercase ml-1">Promotion Name</label><input name="name" required defaultValue={editingPromo?.name} className="w-full p-4 bg-slate-50 border rounded-2xl font-bold" /></div>
+                <div>
+                   <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Apply to SKUs (Easy Keying)</label>
+                   <textarea value={promoSkusInput} onChange={e=>setPromoSkusInput(e.target.value)} placeholder={t.promo_sku_placeholder} className="w-full p-4 bg-slate-50 border rounded-2xl font-bold h-24" />
+                   <p className="text-[10px] text-slate-400 mt-2 font-bold italic">ระบุรหัสสินค้าที่ต้องการร่วมรายการ เช่น: 001, 002, 003</p>
                 </div>
-                <div className="space-y-3 pt-4 border-t grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-3">
-                   {Array.from({length: 7}).map((_, i) => (
-                      <div key={i} className="flex gap-2 items-center bg-slate-50 p-3 rounded-[1.5rem] border border-slate-100">
-                         <input name={`qty_${i+1}`} type="number" placeholder="Qty" defaultValue={editingPromo?.tiers?.[i]?.minQty} className="w-20 p-3 bg-white border rounded-xl font-bold text-center focus:border-sky-300 outline-none" />
-                         <ArrowRight className="text-slate-300 shrink-0" size={14} />
-                         <input name={`price_${i+1}`} type="number" placeholder="Price" defaultValue={editingPromo?.tiers?.[i]?.unitPrice} className="flex-1 p-3 bg-sky-50 border border-sky-100 rounded-xl font-black text-sky-600 text-center focus:border-sky-500 outline-none" />
-                      </div>
-                   ))}
+                <div className="grid grid-cols-2 gap-4">
+                  {Array.from({length: 7}).map((_, i) => (
+                    <div key={i} className="flex gap-2 items-center bg-slate-50 p-3 rounded-2xl">
+                      <input name={`qty_${i+1}`} type="number" placeholder="Qty" defaultValue={editingPromo?.tiers?.[i]?.minQty} className="w-16 p-2 bg-white border rounded text-center font-bold" />
+                      <ArrowRight size={14} className="text-slate-300"/>
+                      <input name={`price_${i+1}`} type="number" placeholder="Price" defaultValue={editingPromo?.tiers?.[i]?.unitPrice} className="flex-1 p-2 bg-white border rounded font-black text-sky-600 text-center" />
+                    </div>
+                  ))}
                 </div>
-                <button type="submit" className="w-full py-5 bg-sky-600 text-white rounded-[2rem] font-black text-lg shadow-xl uppercase tracking-widest active:scale-95 transition-all mt-4">Save Promotion</button>
+                <button type="submit" className="w-full py-5 bg-sky-600 text-white rounded-2xl font-black shadow-xl">SAVE PROMOTION</button>
              </form>
           </Card>
         </div>
@@ -594,8 +475,8 @@ const App: React.FC = () => {
       {isProductModalOpen && (
         <div className="fixed inset-0 bg-slate-950/90 z-[600] flex items-center justify-center p-6 backdrop-blur-xl animate-in zoom-in-95">
           <Card className="w-full max-w-xl p-10 relative">
-             <button onClick={()=>setIsProductModalOpen(false)} className="absolute top-6 right-6 p-3 bg-slate-100 rounded-full hover:bg-rose-500 hover:text-white transition-all"><X size={20}/></button>
-             <h3 className="text-2xl font-black mb-10 text-slate-800 flex items-center gap-4"><Package className="text-sky-500"/> {editingProduct ? 'Edit Item' : 'New Item'}</h3>
+             <button onClick={()=>setIsProductModalOpen(false)} className="absolute top-6 right-6 p-3 bg-slate-100 rounded-full hover:bg-rose-500 hover:text-white"><X size={20}/></button>
+             <h3 className="text-2xl font-black mb-8 text-slate-800 flex items-center gap-3"><Package className="text-sky-500"/> Product Info</h3>
              <form onSubmit={async (e) => {
                 e.preventDefault(); 
                 const fd = new FormData(e.currentTarget);
@@ -603,21 +484,31 @@ const App: React.FC = () => {
                   id: editingProduct?.id || uuidv4(), 
                   name: fd.get('name') as string, code: fd.get('code') as string,
                   cost: Number(fd.get('cost')), price: Number(fd.get('price')), stock: Number(fd.get('stock')),
-                  imageUrl: fd.get('imageUrl') as string,
+                  imageUrl: (editingProduct as any)?.imageUrl || "",
                   color: editingProduct?.color || "bg-sky-500", category: "General"
                 };
-                if (db) await setDoc(doc(db, 'products', p.id), p);
+                await setDoc(doc(db, 'products', p.id), p);
                 setIsProductModalOpen(false);
-             }} className="space-y-5">
-                <div><label className="text-[10px] font-black text-slate-400 ml-1 uppercase">Name</label><input name="name" required defaultValue={editingProduct?.name} className="w-full p-4 bg-slate-50 border rounded-xl font-bold" /></div>
-                <div><label className="text-[10px] font-black text-slate-400 ml-1 uppercase">SKU Code</label><input name="code" required defaultValue={editingProduct?.code} className="w-full p-4 bg-slate-50 border rounded-xl font-bold" /></div>
-                <div><label className="text-[10px] font-black text-slate-400 ml-1 uppercase">{t.stock_image_url}</label><input name="imageUrl" defaultValue={editingProduct?.imageUrl} placeholder="https://image.path/image.jpg" className="w-full p-4 bg-slate-50 border rounded-xl font-bold" /></div>
-                <div className="grid grid-cols-2 gap-4">
-                   <div><label className="text-[10px] font-black text-slate-400 ml-1 uppercase">Cost</label><input name="cost" type="number" required defaultValue={editingProduct?.cost} className="w-full p-4 bg-slate-50 border rounded-xl font-bold" /></div>
-                   <div><label className="text-[10px] font-black text-slate-400 ml-1 uppercase">Price</label><input name="price" type="number" required defaultValue={editingProduct?.price} className="w-full p-4 bg-sky-50 border-sky-100 rounded-xl font-black text-sky-600" /></div>
+             }} className="space-y-4">
+                <div className="flex justify-center mb-6">
+                  <div className="relative group">
+                    <div className="w-32 h-32 rounded-[2.5rem] bg-slate-100 border-4 border-white shadow-xl overflow-hidden flex items-center justify-center">
+                       {editingProduct?.imageUrl ? <img src={editingProduct.imageUrl} className="w-full h-full object-cover" /> : <ImageIcon size={40} className="text-slate-300"/>}
+                    </div>
+                    <label className="absolute bottom-0 right-0 p-3 bg-sky-600 text-white rounded-2xl shadow-lg cursor-pointer hover:bg-sky-700">
+                       <Upload size={18}/>
+                       <input type="file" className="hidden" accept="image/*" onChange={e => handleImageUpload(e, (url) => setEditingProduct(prev => prev ? {...prev, imageUrl: url} : null))} />
+                    </label>
+                  </div>
                 </div>
-                <div><label className="text-[10px] font-black text-slate-400 ml-1 uppercase">Stock</label><input name="stock" type="number" required defaultValue={editingProduct?.stock} className="w-full p-4 bg-slate-50 border rounded-xl font-bold" /></div>
-                <button type="submit" className="w-full py-5 bg-sky-600 text-white rounded-2xl font-black text-lg shadow-xl uppercase active:scale-95 transition-all">Save Product</button>
+                <div><label className="text-[10px] font-black text-slate-400 uppercase ml-1">Name</label><input name="name" required defaultValue={editingProduct?.name} className="w-full p-4 bg-slate-50 border rounded-xl font-bold" /></div>
+                <div><label className="text-[10px] font-black text-slate-400 uppercase ml-1">SKU Code</label><input name="code" required defaultValue={editingProduct?.code} className="w-full p-4 bg-slate-50 border rounded-xl font-bold" /></div>
+                <div className="grid grid-cols-2 gap-4">
+                   <div><label className="text-[10px] font-black text-slate-400 uppercase ml-1">Cost</label><input name="cost" type="number" required defaultValue={editingProduct?.cost} className="w-full p-4 bg-slate-50 border rounded-xl font-bold" /></div>
+                   <div><label className="text-[10px] font-black text-slate-400 uppercase ml-1">Retail Price</label><input name="price" type="number" required defaultValue={editingProduct?.price} className="w-full p-4 bg-sky-50 border-sky-100 rounded-xl font-black text-sky-600" /></div>
+                </div>
+                <div><label className="text-[10px] font-black text-slate-400 uppercase ml-1">In Stock</label><input name="stock" type="number" required defaultValue={editingProduct?.stock} className="w-full p-4 bg-slate-50 border rounded-xl font-bold" /></div>
+                <button type="submit" className="w-full py-5 bg-sky-600 text-white rounded-2xl font-black shadow-xl">SAVE PRODUCT</button>
              </form>
           </Card>
         </div>
