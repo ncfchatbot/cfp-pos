@@ -21,8 +21,9 @@ export enum AppMode {
   STOCK = 'stock',
   REPORTS = 'reports',
   PROMOTIONS = 'promotions',
-  AI = 'ai',
-  SETTINGS = 'settings'
+  SETTINGS = 'settings',
+  // Added missing AI mode to the AppMode enum
+  AI = 'ai'
 }
 
 export interface Product {

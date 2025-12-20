@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { Package, Bot, X, LogOut, LayoutDashboard, Settings, ClipboardList, BarChart2, Tag, ChevronRight, Coffee } from 'lucide-react';
+import { Package, X, LogOut, LayoutDashboard, Settings, ClipboardList, BarChart2, Tag, ChevronRight, Coffee, Bot } from 'lucide-react';
 import { AppMode, Language } from '../types';
 import { translations } from '../translations';
 
@@ -24,6 +24,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentMode, onModeChange, isOpen, se
     { mode: AppMode.STOCK, label: t.menu_stock, icon: Package },
     { mode: AppMode.PROMOTIONS, label: t.menu_promotions, icon: Tag },
     { mode: AppMode.REPORTS, label: t.menu_reports, icon: BarChart2 },
+    // Added AI Assistant to sidebar menu items
     { mode: AppMode.AI, label: t.menu_ai, icon: Bot },
     { mode: AppMode.SETTINGS, label: t.menu_settings, icon: Settings },
   ];

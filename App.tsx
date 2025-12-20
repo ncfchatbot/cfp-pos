@@ -4,13 +4,13 @@ import {
   Plus, Minus, Trash2, Edit, LayoutDashboard, Settings, 
   Package, ClipboardList, BarChart3, Tag, X, Search,
   ShoppingCart, Coffee, TrendingUp, CheckCircle2, Save, Send, Bot, 
-  User, Download, Upload, AlertCircle, FileText, Smartphone, Truck, CreditCard, Building2, MapPin, Image as ImageIcon, FileUp, FileDown, ShieldAlert, Wifi, WifiOff
+  User, Download, Upload, AlertCircle, FileText, Smartphone, Truck, CreditCard, Building2, MapPin, Image as ImageIcon, FileUp, FileDown, ShieldAlert, Wifi, WifiOff, DollarSign, PieChart
 } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import { AppMode, Product, CartItem, SaleRecord, StoreProfile, Language, Promotion, PromoTier, Role, Message, LogisticsProvider, OrderStatus, PaymentMethod } from './types';
 import { translations } from './translations';
 import Sidebar from './components/Sidebar';
-import { db, collection, doc, setDoc, onSnapshot, query, orderBy } from './services/firebase';
+import { db, collection, doc, setDoc, onSnapshot, query, orderBy, deleteDoc } from './services/firebase';
 
 const Card: React.FC<{ children: React.ReactNode; className?: string }> = ({ children, className = "" }) => (
   <div className={`bg-white rounded-[2.5rem] border border-slate-200 shadow-sm p-8 ${className}`}>{children}</div>
@@ -68,6 +68,11 @@ const App: React.FC = () => {
     return () => { unsubP(); unsubS(); unsubPr(); };
   }, []);
 
+  const formatMoney = (amount: number) => {
+    const locale = language === 'th' ? 'th-TH' : (language === 'en' ? 'en-US' : 'lo-LA');
+    return new Intl.NumberFormat(locale, { style: 'currency', currency: 'LAK', maximumFractionDigits: 0 }).format(amount);
+  };
+
   const getProductPrice = (product: Product, quantity: number) => {
     const promo = promotions.find(p => p.targetProductId === product.id && p.isActive);
     if (!promo || !promo.tiers || !promo.tiers.length) return product.price;
@@ -109,30 +114,18 @@ const App: React.FC = () => {
     try {
       if (!db) throw new Error("Database not connected");
       await setDoc(doc(db, 'sales', order.id), order);
-      
-      // Auto-update stock
       for (const item of billItems) {
         const p = products.find(x => x.id === item.id);
-        if (p) {
-          await setDoc(doc(db, 'products', p.id), { ...p, stock: Math.max(0, p.stock - item.quantity) });
-        }
+        if (p) await setDoc(doc(db, 'products', p.id), { ...p, stock: Math.max(0, p.stock - item.quantity) });
       }
-
-      setIsBillModalOpen(false); 
-      setBillItems([]); 
+      setIsBillModalOpen(false); setBillItems([]); 
       setCustomerName(''); setCustomerPhone(''); setCustomerAddress(''); setShippingBranch('');
       alert("Checkout Successful!");
     } catch (err: any) {
-      console.error("Checkout Error:", err);
-      if (err.message && err.message.toLowerCase().includes('permission')) {
-        alert("🔥 Missing Permissions!\nโปรดไปที่ Firebase Console -> Firestore -> Rules และตั้งค่า 'allow read, write: if true;'");
-      } else {
-        alert("Error during checkout: " + err.message);
-      }
+      alert("Error during checkout: " + err.message);
     }
   };
 
-  // --- DOWNLOAD CSV TEMPLATE ---
   const downloadTemplate = () => {
     const headers = "name,code,price,cost,stock,category";
     const example = "Espresso Coffee,E001,25000,15000,100,Coffee\nLatte Art,L002,30000,18000,50,Coffee";
@@ -147,101 +140,64 @@ const App: React.FC = () => {
     document.body.removeChild(link);
   };
 
-  // --- BULK FILE IMPORT (CSV/JSON) ---
   const handleBulkFileImport = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
     const reader = new FileReader();
     reader.onload = async (event) => {
       let content = event.target?.result as string;
       try {
-        if (content.startsWith('\ufeff')) {
-          content = content.substring(1);
-        }
-
-        let importedProducts: any[] = [];
-        
-        if (file.name.toLowerCase().endsWith('.json')) {
-          importedProducts = JSON.parse(content);
-        } else if (file.name.toLowerCase().endsWith('.csv')) {
+        if (content.startsWith('\ufeff')) content = content.substring(1);
+        let imported: any[] = [];
+        if (file.name.endsWith('.json')) imported = JSON.parse(content);
+        else if (file.name.endsWith('.csv')) {
           const lines = content.split(/\r?\n/).filter(l => l.trim() !== '');
           if (lines.length < 2) return;
-
-          const firstLine = lines[0];
-          const delimiter = firstLine.includes(';') && !firstLine.includes(',') ? ';' : ',';
-          const headers = firstLine.split(delimiter).map(h => h.trim().toLowerCase());
-          
+          const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
           for (let i = 1; i < lines.length; i++) {
-            const values = lines[i].split(delimiter);
+            const values = lines[i].split(',');
             const p: any = {};
-            headers.forEach((h, idx) => {
-              const rawVal = values[idx]?.trim() || '';
-              p[h] = rawVal.replace(/^["']|["']$/g, '');
-            });
-            importedProducts.push(p);
+            headers.forEach((h, idx) => p[h] = values[idx]?.trim().replace(/^["']|["']$/g, '') || '');
+            imported.push(p);
           }
         }
-
-        if (Array.isArray(importedProducts) && db) {
-          let count = 0;
-          for (const p of importedProducts) {
-            const name = p.name || p['item name'] || p['ชื่อสินค้า'];
-            if (!name) continue; 
-
+        if (imported.length > 0 && db) {
+          for (const p of imported) {
             const id = p.id || uuidv4();
-            const parseNum = (v: any) => {
-              if (v === undefined || v === null) return 0;
-              const cleaned = String(v).replace(/[^0-9.]/g, '');
-              return Number(cleaned) || 0;
-            };
-
             await setDoc(doc(db, 'products', id), {
-              id,
-              code: p.code || 'SKU-' + Math.random().toString(36).substring(2, 7).toUpperCase(),
-              name: String(name),
-              price: parseNum(p.price),
-              cost: parseNum(p.cost),
-              stock: parseNum(p.stock),
-              category: p.category || 'General',
-              color: p.color || 'bg-sky-500'
+              id, code: p.code || 'SKU-' + Math.random().toString(36).substring(2, 7).toUpperCase(),
+              name: p.name || 'Unknown', price: Number(p.price) || 0, cost: Number(p.cost) || 0,
+              stock: Number(p.stock) || 0, category: p.category || 'General', color: 'bg-sky-500'
             });
-            count++;
           }
-          alert(`Successfully imported ${count} items!`);
-        } else if (!db) {
-          alert('Database connection not available.');
+          alert(`Imported ${imported.length} items!`);
         }
-      } catch (err: any) {
-        console.error("Import Error:", err);
-        if (err.message && err.message.toLowerCase().includes('permission')) {
-          alert('🔥 ERROR: Missing Permissions!\nโปรดตั้งค่า Firestore Rules ให้เป็น Public (allow read, write: if true;)');
-        } else {
-          alert('Error processing file: ' + err.message);
-        }
-      }
+      } catch (err: any) { alert('Error: ' + err.message); }
     };
     reader.readAsText(file);
     e.target.value = ''; 
   };
 
-  const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      if (file.size > 1024 * 1024) {
-        alert('File size too large. Please use image under 1MB.');
-        return;
-      }
-      const reader = new FileReader();
-      reader.onloadend = () => setStoreProfile(prev => ({ ...prev, logoUrl: reader.result as string }));
-      reader.readAsDataURL(file);
-    }
-  };
+  // --- REPORT CALCULATIONS ---
+  const reportStats = useMemo(() => {
+    const totalRevenue = recentSales.reduce((a, b) => a + b.total, 0);
+    const totalCost = recentSales.reduce((acc, sale) => {
+      return acc + sale.items.reduce((itemAcc, item) => {
+        const original = products.find(p => p.id === item.id);
+        return itemAcc + ((original?.cost || 0) * item.quantity);
+      }, 0);
+    }, 0);
+    
+    // Top Products
+    const productCounts: Record<string, {name: string, qty: number}> = {};
+    recentSales.forEach(s => s.items.forEach(i => {
+      if (!productCounts[i.id]) productCounts[i.id] = {name: i.name, qty: 0};
+      productCounts[i.id].qty += i.quantity;
+    }));
+    const topProducts = Object.values(productCounts).sort((a,b) => b.qty - a.qty).slice(0, 5);
 
-  const formatMoney = (amount: number) => {
-    const locale = language === 'th' ? 'th-TH' : (language === 'en' ? 'en-US' : 'lo-LA');
-    return new Intl.NumberFormat(locale, { style: 'currency', currency: 'LAK', maximumFractionDigits: 0 }).format(amount);
-  };
+    return { totalRevenue, totalCost, profit: totalRevenue - totalCost, topProducts };
+  }, [recentSales, products]);
 
   return (
     <div className={`flex h-screen bg-slate-50 text-slate-900 overflow-hidden font-sans ${language === 'th' ? 'font-thai' : ''}`}>
@@ -275,6 +231,7 @@ const App: React.FC = () => {
 
         <div className="flex-1 overflow-y-auto p-6 md:p-10 custom-scrollbar">
           <div className="max-w-7xl mx-auto space-y-8">
+            
             {mode === AppMode.DASHBOARD && (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 animate-in fade-in">
                  {[
@@ -307,22 +264,19 @@ const App: React.FC = () => {
             )}
 
             {mode === AppMode.ORDERS && (
-              <div className="space-y-6 animate-in slide-in-from-bottom-5">
+              <div className="space-y-6">
                  <div className="bg-white rounded-[2.5rem] border overflow-hidden shadow-sm">
                     <table className="w-full text-left">
                        <thead className="bg-slate-50 border-b text-[10px] font-black uppercase text-slate-400 tracking-widest">
-                          <tr><th className="px-8 py-5">Date / Bill</th><th className="px-8 py-5">Customer</th><th className="px-8 py-5">Logistics</th><th className="px-8 py-5 text-right">Total</th><th className="px-8 py-5 text-center">Status</th></tr>
+                          <tr><th className="px-8 py-5">Date / Bill</th><th className="px-8 py-5">Customer</th><th className="px-8 py-5 text-right">Total</th><th className="px-8 py-5 text-center">Status</th></tr>
                        </thead>
                        <tbody className="divide-y text-sm font-bold">
                           {recentSales.map(s => (
                             <tr key={s.id} className="hover:bg-slate-50 transition-colors">
-                               <td className="px-8 py-5"><div className="text-slate-800">{s.date}</div><div className="text-[10px] text-slate-300 font-mono">#{s.id.slice(0,8)}</div></td>
-                               <td className="px-8 py-5 text-slate-600">{s.customerName}</td>
-                               <td className="px-8 py-5 text-[10px] text-slate-400 font-black uppercase">
-                                  {s.shippingCarrier !== 'None' ? `${s.shippingCarrier} ${s.shippingBranch ? '/ ' + s.shippingBranch : ''}` : '-'}
-                               </td>
+                               <td className="px-8 py-5"><div className="text-slate-800">{s.date}</div><div className="text-[10px] text-slate-300">#{s.id.slice(0,8)}</div></td>
+                               <td className="px-8 py-5">{s.customerName || '-'}</td>
                                <td className="px-8 py-5 text-right text-sky-600 font-black">{formatMoney(s.total)}</td>
-                               <td className="px-8 py-5 text-center"><span className={`px-4 py-1.5 rounded-xl text-[10px] font-black uppercase ${s.status === 'Paid' ? 'bg-emerald-100 text-emerald-600' : 'bg-rose-100 text-rose-600'}`}>{s.status === 'Paid' ? t.pay_paid : t.pay_pending}</span></td>
+                               <td className="px-8 py-5 text-center"><span className="px-3 py-1 bg-emerald-100 text-emerald-600 rounded-lg text-[10px] uppercase font-black">{s.status}</span></td>
                             </tr>
                           ))}
                        </tbody>
@@ -332,7 +286,7 @@ const App: React.FC = () => {
             )}
 
             {mode === AppMode.STOCK && (
-              <div className="space-y-6 animate-in slide-in-from-bottom-5">
+              <div className="space-y-6">
                  <div className="flex justify-between items-center">
                     <h2 className="text-2xl font-black text-slate-800 flex items-center gap-3"><Package className="text-sky-500"/> {t.stock_title}</h2>
                     <button onClick={()=>{setEditingProduct(null); setIsProductModalOpen(true);}} className="bg-slate-900 text-white px-8 py-4 rounded-2xl font-black hover:bg-black transition-all">
@@ -349,7 +303,7 @@ const App: React.FC = () => {
                             <tr key={p.id} className="hover:bg-slate-50 transition-colors">
                                <td className="px-8 py-5 flex items-center gap-4">
                                   <div className={`w-10 h-10 rounded-xl ${p.color || 'bg-slate-200'} flex items-center justify-center text-white font-black`}>{p.name.charAt(0)}</div>
-                                  <div><div className="text-slate-800">{p.name}</div><div className="text-[10px] text-slate-300 font-mono">SKU: {p.code}</div></div>
+                                  <div><div className="text-slate-800">{p.name}</div><div className="text-[10px] text-slate-300">SKU: {p.code}</div></div>
                                </td>
                                <td className="px-8 py-5 text-right text-slate-400">{formatMoney(p.cost)}</td>
                                <td className="px-8 py-5 text-right text-sky-600 font-black">{formatMoney(p.price)}</td>
@@ -363,47 +317,112 @@ const App: React.FC = () => {
               </div>
             )}
 
+            {mode === AppMode.PROMOTIONS && (
+              <div className="space-y-6">
+                <div className="flex justify-between items-center">
+                    <h2 className="text-2xl font-black text-slate-800 flex items-center gap-3"><Tag className="text-sky-500"/> {t.menu_promotions}</h2>
+                    <button onClick={()=>{setEditingPromo(null); setIsPromoModalOpen(true);}} className="bg-sky-600 text-white px-8 py-4 rounded-2xl font-black shadow-xl hover:bg-sky-700 transition-all flex items-center gap-2">
+                       <Plus size={20}/> {t.promo_add}
+                    </button>
+                 </div>
+                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {promotions.map(promo => {
+                       const target = products.find(p => p.id === promo.targetProductId);
+                       return (
+                          <div key={promo.id} className="bg-white p-8 rounded-[2.5rem] border shadow-sm relative group hover:border-sky-500 transition-all">
+                             <button onClick={async () => { if(db) await deleteDoc(doc(db, 'promotions', promo.id)); }} className="absolute top-6 right-6 p-2 text-slate-200 hover:text-rose-500 transition-colors"><Trash2 size={18}/></button>
+                             <div className="flex items-center gap-4 mb-6">
+                                <div className={`w-12 h-12 rounded-xl ${target?.color || 'bg-slate-100'} flex items-center justify-center font-black text-white`}>{target?.name.charAt(0) || '!'}</div>
+                                <div><h4 className="font-black text-slate-800 leading-tight">{promo.name}</h4><p className="text-[10px] font-bold text-slate-400 uppercase">{target?.name || 'Item Not Found'}</p></div>
+                             </div>
+                             <div className="space-y-1.5 bg-slate-50 p-4 rounded-2xl mb-4">
+                                {promo.tiers?.map((tier, idx) => (
+                                   <div key={idx} className="flex justify-between items-center text-sm py-1 border-b last:border-0">
+                                      <span className="font-bold text-slate-400">{tier.minQty}+ {t.stock_unit}</span>
+                                      <span className="font-black text-sky-600">{formatMoney(tier.unitPrice)}</span>
+                                   </div>
+                                ))}
+                             </div>
+                             <button onClick={()=>{setEditingPromo(promo); setIsPromoModalOpen(true);}} className="w-full py-3 bg-slate-100 rounded-xl text-xs font-black text-slate-600 hover:bg-sky-600 hover:text-white transition-all">EDIT</button>
+                          </div>
+                       );
+                    })}
+                 </div>
+              </div>
+            )}
+
+            {mode === AppMode.REPORTS && (
+              <div className="space-y-8 animate-in slide-in-from-bottom-5">
+                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <Card className="bg-gradient-to-br from-sky-500 to-sky-600 text-white border-0">
+                       <p className="text-[10px] font-black uppercase tracking-widest opacity-80 mb-1">TOTAL REVENUE</p>
+                       <h3 className="text-4xl font-black">{formatMoney(reportStats.totalRevenue)}</h3>
+                       <div className="mt-4 flex items-center gap-2 text-[10px] font-bold bg-white/10 w-fit px-3 py-1 rounded-full"><DollarSign size={12}/> All time sales</div>
+                    </Card>
+                    <Card className="bg-white border-slate-200">
+                       <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">NET PROFIT</p>
+                       <h3 className="text-4xl font-black text-emerald-600">{formatMoney(reportStats.profit)}</h3>
+                       <p className="text-[10px] text-slate-400 mt-2">After deducting costs</p>
+                    </Card>
+                    <Card className="bg-white border-slate-200">
+                       <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">OPERATING COST</p>
+                       <h3 className="text-4xl font-black text-slate-800">{formatMoney(reportStats.totalCost)}</h3>
+                       <p className="text-[10px] text-slate-400 mt-2">Inventory cost only</p>
+                    </Card>
+                 </div>
+
+                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                    <Card>
+                       <h4 className="text-sm font-black text-slate-800 uppercase tracking-widest mb-8 flex items-center gap-2"><PieChart size={18} className="text-sky-500"/> TOP SELLING PRODUCTS</h4>
+                       <div className="space-y-6">
+                          {reportStats.topProducts.map((p, idx) => {
+                             const maxQty = reportStats.topProducts[0].qty;
+                             const percentage = (p.qty / maxQty) * 100;
+                             return (
+                                <div key={idx} className="space-y-2">
+                                   <div className="flex justify-between items-end">
+                                      <span className="text-sm font-black text-slate-800">{p.name}</span>
+                                      <span className="text-xs font-bold text-slate-400">{p.qty} Units</span>
+                                   </div>
+                                   <div className="w-full h-3 bg-slate-100 rounded-full overflow-hidden">
+                                      <div className="h-full bg-sky-500 rounded-full transition-all duration-1000" style={{ width: `${percentage}%` }}></div>
+                                   </div>
+                                </div>
+                             )
+                          })}
+                          {reportStats.topProducts.length === 0 && <p className="text-center italic text-slate-300 py-10">No sales data yet</p>}
+                       </div>
+                    </Card>
+                    <Card>
+                        <h4 className="text-sm font-black text-slate-800 uppercase tracking-widest mb-8 flex items-center gap-2"><TrendingUp size={18} className="text-sky-500"/> SALES DISTRIBUTION</h4>
+                        <div className="flex flex-col h-full justify-center items-center py-10 opacity-30 italic font-black text-slate-400 uppercase">
+                           <BarChart3 size={80} className="mb-4"/>
+                           COMING SOON: DETAILED DAILY CHARTS
+                        </div>
+                    </Card>
+                 </div>
+              </div>
+            )}
+
             {mode === AppMode.SETTINGS && (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-8 animate-in fade-in">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                  <Card>
                     <h4 className="font-black text-slate-800 uppercase tracking-widest text-xs mb-8 flex items-center gap-2 border-b pb-4"><Settings size={16}/> {t.menu_settings}</h4>
                     <div className="space-y-5">
-                       <div className={`p-4 rounded-2xl border flex items-center gap-4 ${db ? 'bg-emerald-50 border-emerald-100' : 'bg-rose-50 border-rose-100'}`}>
-                          <div className={`p-3 rounded-full ${db ? 'bg-emerald-500 text-white' : 'bg-rose-500 text-white'}`}>
-                             {db ? <Wifi size={20}/> : <WifiOff size={20}/>}
-                          </div>
-                          <div className="flex-1">
-                             <p className={`text-[10px] font-black uppercase tracking-widest ${db ? 'text-emerald-600' : 'text-rose-600'}`}>
-                                Database Status: {db ? 'CONNECTED' : 'NOT CONNECTED'}
-                             </p>
-                             <p className="text-[9px] font-bold text-slate-400">
-                                {db ? 'Firestore is active and listening.' : 'Please check your FIREBASE_CONFIG env.'}
-                             </p>
-                          </div>
-                       </div>
-                       <div><label className="text-[10px] font-black text-slate-400 uppercase ml-1">{t.setting_shop_name}</label><input value={storeProfile.name} onChange={e=>setStoreProfile({...storeProfile, name: e.target.value})} className="w-full p-4 bg-slate-50 border rounded-2xl font-bold focus:border-sky-500 outline-none transition-all" /></div>
-                       <div><label className="text-[10px] font-black text-slate-400 uppercase ml-1">{t.setting_address}</label><textarea value={storeProfile.address} onChange={e=>setStoreProfile({...storeProfile, address: e.target.value})} className="w-full p-4 bg-slate-50 border rounded-2xl font-bold h-24 focus:border-sky-500 outline-none transition-all" placeholder="Store Address..." /></div>
-                       <button onClick={()=>{localStorage.setItem('pos_profile', JSON.stringify(storeProfile)); alert('Settings Saved Locally');}} className="w-full py-5 bg-sky-600 text-white rounded-2xl font-black uppercase text-xs tracking-widest flex items-center justify-center gap-2 shadow-xl shadow-sky-600/20 active:scale-95 transition-all"><Save size={16}/> {t.save}</button>
+                       <div><label className="text-[10px] font-black text-slate-400 uppercase ml-1">{t.setting_shop_name}</label><input value={storeProfile.name} onChange={e=>setStoreProfile({...storeProfile, name: e.target.value})} className="w-full p-4 bg-slate-50 border rounded-2xl font-bold" /></div>
+                       <div><label className="text-[10px] font-black text-slate-400 uppercase ml-1">{t.setting_address}</label><textarea value={storeProfile.address} onChange={e=>setStoreProfile({...storeProfile, address: e.target.value})} className="w-full p-4 bg-slate-50 border rounded-2xl font-bold h-24" /></div>
+                       <button onClick={()=>{localStorage.setItem('pos_profile', JSON.stringify(storeProfile)); alert('Saved');}} className="w-full py-5 bg-sky-600 text-white rounded-2xl font-black uppercase text-xs tracking-widest flex items-center justify-center gap-2 active:scale-95 transition-all"><Save size={16}/> {t.save}</button>
                     </div>
                  </Card>
-
                  <Card>
                     <h4 className="font-black text-slate-800 uppercase tracking-widest text-xs mb-8 flex items-center gap-2 border-b pb-4"><FileUp size={16}/> {t.setting_bulk}</h4>
-                    <div className="space-y-6">
-                       <div className="p-10 border-2 border-dashed border-slate-200 rounded-[3rem] bg-slate-50/30 flex flex-col items-center justify-center text-center group hover:border-sky-400 hover:bg-sky-50/20 transition-all duration-300">
-                          <div className="p-6 bg-white shadow-xl rounded-[2rem] mb-6"><FileUp size={40} className="text-sky-500"/></div>
-                          <p className="text-sm font-black text-slate-800 mb-2">Upload File to Import</p>
-                          <label className="px-12 py-5 bg-slate-900 text-white rounded-2xl text-xs font-black uppercase tracking-[0.2em] cursor-pointer hover:bg-black transition-all">
-                             SELECT FILE
-                             <input type="file" className="hidden" accept=".csv,.json" onChange={handleBulkFileImport} />
-                          </label>
-                       </div>
-                       <div className="bg-slate-900 text-white p-8 rounded-[2.5rem] shadow-2xl relative overflow-hidden group">
-                          <h5 className="text-xs font-black uppercase tracking-[0.2em] text-sky-400 mb-4 flex items-center gap-2"><AlertCircle size={14}/> Need Help?</h5>
-                          <button onClick={downloadTemplate} className="w-full py-4 bg-white/10 hover:bg-white/20 border border-white/10 rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-3 transition-all active:scale-95">
-                             <FileDown size={16}/> {t.setting_download_template}
-                          </button>
-                       </div>
+                    <div className="p-10 border-2 border-dashed border-slate-200 rounded-[3rem] bg-slate-50/30 flex flex-col items-center justify-center text-center">
+                       <FileUp size={40} className="text-sky-500 mb-6"/>
+                       <label className="px-12 py-5 bg-slate-900 text-white rounded-2xl text-xs font-black uppercase cursor-pointer hover:bg-black transition-all">
+                          SELECT FILE
+                          <input type="file" className="hidden" accept=".csv,.json" onChange={handleBulkFileImport} />
+                       </label>
+                       <button onClick={downloadTemplate} className="mt-6 text-sky-600 font-bold text-xs underline">{t.setting_download_template}</button>
                     </div>
                  </Card>
               </div>
@@ -421,7 +440,7 @@ const App: React.FC = () => {
                    <h3 className="text-2xl font-black text-slate-800 flex items-center gap-3"><ShoppingCart className="text-sky-500"/> {t.order_create_bill}</h3>
                    <button onClick={()=>setIsBillModalOpen(false)} className="p-3 bg-slate-100 rounded-full hover:bg-rose-500 hover:text-white transition-all"><X size={20}/></button>
                 </div>
-                <div className="flex-1 overflow-y-auto space-y-3 custom-scrollbar">
+                <div className="flex-1 overflow-y-auto space-y-3 custom-scrollbar pr-2">
                    {billItems.map(it => (
                       <div key={it.id} className="flex items-center gap-4 p-4 bg-white rounded-3xl border shadow-sm">
                          <div className={`w-10 h-10 rounded-xl ${it.color} flex items-center justify-center font-black text-white`}>{it.name.charAt(0)}</div>
@@ -444,7 +463,7 @@ const App: React.FC = () => {
                 </div>
              </div>
              <div className="flex-1 p-8 overflow-hidden flex flex-col">
-                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 overflow-y-auto custom-scrollbar">
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 overflow-y-auto custom-scrollbar pr-2">
                    {products.filter(p => !skuSearch || p.name.toLowerCase().includes(skuSearch.toLowerCase())).map(p => (
                       <button key={p.id} onClick={()=>addToCart(p)} className="bg-white p-4 rounded-[2.5rem] border shadow-sm hover:border-sky-500 transition-all flex flex-col group h-fit text-left active:scale-95">
                          <div className={`w-full aspect-square rounded-[2rem] ${p.color} mb-3 flex items-center justify-center text-4xl font-black text-white shadow-lg`}>{p.name.charAt(0)}</div>
@@ -458,6 +477,54 @@ const App: React.FC = () => {
         </div>
       )}
 
+      {isPromoModalOpen && (
+        <div className="fixed inset-0 bg-slate-950/90 z-[600] flex items-center justify-center p-6 backdrop-blur-xl animate-in zoom-in-95">
+          <Card className="w-full max-w-2xl p-10 relative max-h-[90vh] overflow-y-auto custom-scrollbar">
+             <button onClick={()=>setIsPromoModalOpen(false)} className="absolute top-6 right-6 p-3 bg-slate-100 rounded-full hover:bg-rose-500 hover:text-white transition-all"><X size={20}/></button>
+             <h3 className="text-2xl font-black mb-8 text-slate-800 flex items-center gap-4"><Tag className="text-sky-500"/> {t.promo_tier_title}</h3>
+             <form onSubmit={async (e) => {
+                e.preventDefault(); 
+                const fd = new FormData(e.currentTarget);
+                const tiers: PromoTier[] = [];
+                for(let i=1; i<=7; i++) {
+                   const q = fd.get(`qty_${i}`); const pr = fd.get(`price_${i}`);
+                   if(q && pr) tiers.push({ minQty: Number(q), unitPrice: Number(pr) });
+                }
+                const promo = { 
+                  id: editingPromo?.id || uuidv4(), 
+                  name: fd.get('name') as string, 
+                  targetProductId: fd.get('productId') as string, 
+                  isActive: true, 
+                  tiers 
+                };
+                if (db) await setDoc(doc(db, 'promotions', promo.id), promo);
+                setIsPromoModalOpen(false);
+             }} className="space-y-6">
+                <div className="grid grid-cols-2 gap-4">
+                   <div><label className="text-[10px] font-black text-slate-400 uppercase">Promo Label</label><input name="name" required defaultValue={editingPromo?.name} className="w-full p-4 bg-slate-50 border rounded-2xl font-bold" /></div>
+                   <div><label className="text-[10px] font-black text-slate-400 uppercase">Target Item</label>
+                      <select name="productId" required defaultValue={editingPromo?.targetProductId} className="w-full p-4 bg-slate-50 border rounded-2xl font-bold">
+                        <option value="">Select a Product...</option>
+                        {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                      </select>
+                   </div>
+                </div>
+                <div className="space-y-3">
+                   {Array.from({length: 7}).map((_, i) => (
+                      <div key={i} className="flex gap-4 items-center bg-slate-50 p-4 rounded-3xl border">
+                         <span className="w-12 font-black text-slate-300">Tier {i+1}</span>
+                         <input name={`qty_${i+1}`} type="number" placeholder="Min Qty" defaultValue={editingPromo?.tiers?.[i]?.minQty} className="flex-1 p-3 bg-white border rounded-xl font-bold text-center" />
+                         <span className="text-slate-300">→</span>
+                         <input name={`price_${i+1}`} type="number" placeholder="Unit Price" defaultValue={editingPromo?.tiers?.[i]?.unitPrice} className="flex-1 p-3 bg-sky-50 border rounded-xl font-black text-sky-600 text-center" />
+                      </div>
+                   ))}
+                </div>
+                <button type="submit" className="w-full py-5 bg-sky-600 text-white rounded-2xl font-black text-lg shadow-xl uppercase tracking-widest active:scale-95 transition-all">Save Tiers</button>
+             </form>
+          </Card>
+        </div>
+      )}
+
       {isProductModalOpen && (
         <div className="fixed inset-0 bg-slate-950/90 z-[600] flex items-center justify-center p-6 backdrop-blur-xl animate-in zoom-in-95">
           <Card className="w-full max-w-xl p-10 relative">
@@ -468,13 +535,9 @@ const App: React.FC = () => {
                 const fd = new FormData(e.currentTarget);
                 const p = {
                   id: editingProduct?.id || uuidv4(), 
-                  name: fd.get('name') as string, 
-                  code: fd.get('code') as string,
-                  cost: Number(fd.get('cost')), 
-                  price: Number(fd.get('price')), 
-                  stock: Number(fd.get('stock')),
-                  color: editingProduct?.color || "bg-sky-500", 
-                  category: "General"
+                  name: fd.get('name') as string, code: fd.get('code') as string,
+                  cost: Number(fd.get('cost')), price: Number(fd.get('price')), stock: Number(fd.get('stock')),
+                  color: editingProduct?.color || "bg-sky-500", category: "General"
                 };
                 if (db) await setDoc(doc(db, 'products', p.id), p);
                 setIsProductModalOpen(false);
