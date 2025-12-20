@@ -77,13 +77,12 @@
           size: A4;
           margin: 1cm;
         }
-        /* Hide everything by default */
+        /* ซ่อนทุกอย่างยกเว้นส่วนที่ต้องการพิมพ์ */
         body * {
           visibility: hidden;
           -webkit-print-color-adjust: exact !important;
           print-color-adjust: exact !important;
         }
-        /* Only show the print area */
         .print-area, .print-area * {
           visibility: visible !important;
           display: block !important;
@@ -96,6 +95,7 @@
           background: white !important;
           color: black !important;
           z-index: 9999;
+          display: block !important;
         }
         table {
           width: 100%;
