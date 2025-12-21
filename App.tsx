@@ -4,7 +4,7 @@ import {
   Plus, Minus, Trash2, Edit, LayoutDashboard, Settings, 
   Package, ClipboardList, BarChart3, Tag, X, Search,
   ShoppingCart, Coffee, TrendingUp, CheckCircle2, Save, Send, Bot, 
-  User, Download, Upload, AlertCircle, FileText, Smartphone, Truck, CreditCard, Building2, MapPin, Image as ImageIcon, FileUp, FileDown, ShieldAlert, Wifi, WifiOff, DollarSign, PieChart, ArrowRight, BarChart2, Users, ChevronRight, List, Phone, Printer
+  User, Download, Upload, AlertCircle, FileText, Smartphone, Truck, CreditCard, Building2, MapPin, Image as ImageIcon, FileUp, FileDown, ShieldAlert, Wifi, WifiOff, DollarSign, PieChart, ArrowRight, BarChart2, Users, ChevronRight, List, Phone, Printer, Database, RotateCcw
 } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import { AppMode, Product, CartItem, SaleRecord, StoreProfile, Language, Promotion, PromoTier, Role, Message, LogisticsProvider, OrderStatus, PaymentMethod } from './types';
@@ -44,6 +44,9 @@ const App: React.FC = () => {
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('Transfer');
   const [skuSearch, setSkuSearch] = useState('');
 
+  // Editing state for Orders
+  const [editingBill, setEditingBill] = useState<SaleRecord | null>(null);
+
   // AI State
   const [messages, setMessages] = useState<Message[]>([]);
   const [chatInput, setChatInput] = useState('');
@@ -68,6 +71,12 @@ const App: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const t = translations[language];
+
+  // Backup Reminder Check (End of month: 28th-31st)
+  const isEndOfMonth = useMemo(() => {
+    const today = new Date();
+    return today.getDate() >= 28;
+  }, []);
 
   // Persistence
   useEffect(() => {
@@ -162,28 +171,115 @@ const App: React.FC = () => {
     });
   };
 
+  const handleOpenNewBill = () => {
+    setEditingBill(null);
+    setBillItems([]);
+    setCustomerName('');
+    setCustomerPhone('');
+    setCustomerAddress('');
+    setShippingCarrier('None');
+    setPaymentMethod('Transfer');
+    setPaymentStatus('Paid');
+    setNewBillTab('items');
+    setIsBillModalOpen(true);
+  };
+
+  const handleOpenEditBill = (order: SaleRecord) => {
+    setEditingBill(order);
+    setBillItems([...order.items]);
+    setCustomerName(order.customerName || '');
+    setCustomerPhone(order.customerPhone || '');
+    setCustomerAddress(order.customerAddress || '');
+    setShippingCarrier(order.shippingCarrier || 'None');
+    setPaymentMethod(order.paymentMethod);
+    setPaymentStatus(order.status);
+    setNewBillTab('checkout');
+    setIsBillModalOpen(true);
+  };
+
   const handleCheckout = async () => {
     if (billItems.length === 0) { alert("กรุณาเลือกสินค้าก่อนเช็คบิล"); return; }
     const total = billItems.reduce((s, i) => s + (Number(i.price || 0) * i.quantity), 0);
+    
+    const isEditing = !!editingBill;
+    const orderId = isEditing ? editingBill.id : uuidv4();
+
     const order: SaleRecord = {
-      id: uuidv4(), items: [...billItems], subtotal: total, discount: 0, total, 
-      date: new Date().toLocaleString(), timestamp: Date.now(), 
-      status: paymentStatus, paymentMethod, 
-      customerName, customerPhone, customerAddress, 
-      shippingCarrier, shippingBranch
+      id: orderId, 
+      items: [...billItems], 
+      subtotal: total, 
+      discount: 0, 
+      total, 
+      date: isEditing ? editingBill.date : new Date().toLocaleString(), 
+      timestamp: isEditing ? editingBill.timestamp : Date.now(), 
+      status: paymentStatus, 
+      paymentMethod, 
+      customerName, 
+      customerPhone, 
+      customerAddress, 
+      shippingCarrier, 
+      shippingBranch
     };
     
     try {
       if (!db) throw new Error("Database not connected");
       await setDoc(doc(db, 'sales', order.id), order);
-      for (const item of billItems) {
-        const p = products.find(x => x.id === item.id);
-        if (p) await setDoc(doc(db, 'products', p.id), { ...p, stock: Math.max(0, (Number(p.stock) || 0) - item.quantity) });
+      
+      // Update stock only for NEW bills (Simplified logic)
+      if (!isEditing) {
+        for (const item of billItems) {
+          const p = products.find(x => x.id === item.id);
+          if (p) await setDoc(doc(db, 'products', p.id), { ...p, stock: Math.max(0, (Number(p.stock) || 0) - item.quantity) });
+        }
       }
-      setIsBillModalOpen(false); setBillItems([]); 
+      
+      setIsBillModalOpen(false); 
+      setEditingBill(null);
+      setBillItems([]); 
       setCustomerName(''); setCustomerPhone(''); setCustomerAddress(''); setShippingBranch('');
-      alert("เช็คบิลสำเร็จ!");
+      alert(isEditing ? "ปรับปรุงข้อมูลบิลสำเร็จ!" : "เช็คบิลสำเร็จ!");
     } catch (err: any) { alert("Error: " + err.message); }
+  };
+
+  // --- DATA MANAGEMENT FUNCTIONS ---
+
+  const handleClearSales = async () => {
+    if (!confirm(t.confirm_clear)) return;
+    if (!confirm("Confirm AGAIN: ลบประวัติการขายทั้งหมด?")) return;
+    
+    try {
+      for (const sale of recentSales) {
+        await deleteDoc(doc(db, 'sales', sale.id));
+      }
+      alert("ล้างประวัติการขายสำเร็จ!");
+    } catch (err: any) { alert("Error: " + err.message); }
+  };
+
+  const handleClearStock = async () => {
+    if (!confirm(t.confirm_clear)) return;
+    if (!confirm("Confirm AGAIN: ลบข้อมูลสินค้าทั้งหมดในสต็อก?")) return;
+    
+    try {
+      for (const product of products) {
+        await deleteDoc(doc(db, 'products', product.id));
+      }
+      alert("ล้างข้อมูลสต็อกสำเร็จ!");
+    } catch (err: any) { alert("Error: " + err.message); }
+  };
+
+  const handleFullBackup = () => {
+    const backupData = {
+      store: storeProfile,
+      products: products,
+      sales: recentSales,
+      promotions: promotions,
+      backupDate: new Date().toISOString()
+    };
+    const blob = new Blob([JSON.stringify(backupData, null, 2)], { type: 'application/json' });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = `CoffeePOS_FullBackup_${new Date().toISOString().slice(0,10)}.json`;
+    link.click();
   };
 
   // --- PRINTING LOGIC ---
@@ -305,6 +401,13 @@ const App: React.FC = () => {
       <Sidebar currentMode={mode} onModeChange={setMode} isOpen={isSidebarOpen} setIsOpen={setIsSidebarOpen} onExport={()=>{}} onImport={()=>{}} language={language} setLanguage={setLanguage} />
 
       <main className="flex-1 flex flex-col h-full overflow-hidden relative">
+        {/* Backup Reminder Banner */}
+        {isEndOfMonth && (
+          <div className="bg-sky-600 text-white px-4 py-2 flex items-center justify-center gap-2 text-xs font-black animate-pulse cursor-pointer z-20" onClick={() => setMode(AppMode.SETTINGS)}>
+            <AlertCircle size={14} /> {t.backup_reminder} <ChevronRight size={14} />
+          </div>
+        )}
+
         <header className="bg-white border-b px-4 md:px-8 py-3 md:py-4 flex items-center justify-between shadow-sm z-10">
           <button onClick={() => setIsSidebarOpen(true)} className="md:hidden p-2 text-slate-400"><List size={20} /></button>
           <div className="flex items-center gap-2">
@@ -349,9 +452,14 @@ const App: React.FC = () => {
               <div className="space-y-4 animate-in slide-in-from-bottom-5">
                  <div className="flex flex-row justify-between items-center">
                     <h2 className="text-lg md:text-2xl font-black text-slate-800 flex items-center gap-2"><ClipboardList className="text-sky-500" size={20}/> {t.menu_orders}</h2>
-                    <button onClick={() => { setNewBillTab('items'); setIsBillModalOpen(true); }} className="bg-sky-600 text-white px-4 md:px-8 py-2 md:py-4 rounded-xl font-black hover:bg-sky-700 shadow-lg flex items-center gap-2 text-xs md:text-base">
-                       <Plus size={16}/> {t.order_create_bill}
-                    </button>
+                    <div className="flex gap-2">
+                      <button onClick={handleClearSales} className="p-2 md:p-4 bg-rose-50 text-rose-600 rounded-xl hover:bg-rose-100 transition-all shadow-sm flex items-center gap-2 text-xs font-black">
+                         <RotateCcw size={16}/> {t.clear_sales}
+                      </button>
+                      <button onClick={handleOpenNewBill} className="bg-sky-600 text-white px-4 md:px-8 py-2 md:py-4 rounded-xl font-black hover:bg-sky-700 shadow-lg flex items-center gap-2 text-xs md:text-base">
+                         <Plus size={16}/> {t.order_create_bill}
+                      </button>
+                    </div>
                  </div>
                  <div className="bg-white rounded-[1.2rem] md:rounded-[2.5rem] border shadow-sm overflow-hidden">
                    <div className="overflow-x-auto">
@@ -373,6 +481,7 @@ const App: React.FC = () => {
                                </td>
                                <td className="px-4 py-4 text-center flex items-center justify-center gap-2">
                                  <button onClick={() => handlePrintBill(s)} className="p-2 text-sky-500 hover:bg-sky-50 rounded-lg" title="Print A4 Bill"><Printer size={16}/></button>
+                                 <button onClick={() => handleOpenEditBill(s)} className="p-2 text-amber-500 hover:bg-amber-50 rounded-lg" title="Edit Bill"><Edit size={16}/></button>
                                  {s.status !== 'Cancelled' && <button onClick={async () => { if(confirm('Cancel?')) await setDoc(doc(db, 'sales', s.id), {...s, status: 'Cancelled'}); }} className="p-2 text-rose-300 hover:text-rose-600 transition-colors"><Trash2 size={16}/></button>}
                                </td>
                             </tr>
@@ -389,6 +498,9 @@ const App: React.FC = () => {
                  <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-4">
                     <h2 className="text-lg md:text-2xl font-black text-slate-800 flex items-center gap-2"><Package className="text-sky-500" size={20}/> {t.stock_title}</h2>
                     <div className="flex flex-wrap gap-2">
+                       <button onClick={handleClearStock} className="flex-1 md:flex-none p-2 md:p-3 bg-rose-50 text-rose-600 rounded-xl hover:bg-rose-100 transition-all shadow-sm flex items-center justify-center gap-2 text-xs font-black">
+                          <RotateCcw size={16}/> {t.clear_stock}
+                       </button>
                        <button onClick={handlePrintStock} className="flex-1 md:flex-none px-4 py-2 md:py-3 bg-white border border-slate-200 rounded-xl font-bold text-sky-600 hover:bg-slate-50 transition-all flex items-center justify-center gap-2 text-xs md:text-sm shadow-sm">
                           <Printer size={16}/> {t.stock_print_report}
                        </button>
@@ -436,7 +548,7 @@ const App: React.FC = () => {
             {mode === AppMode.PROMOTIONS && <PromotionView promotions={promotions} products={products} setEditingPromo={setEditingPromo} setPromoSkusInput={setPromoSkusInput} setIsPromoModalOpen={setIsPromoModalOpen} formatMoney={formatMoney} deleteDoc={deleteDoc} db={db} />}
             {mode === AppMode.REPORTS && <ReportsView reportStats={reportStats} formatMoney={formatMoney} exportRawData={exportRawData} />}
             {mode === AppMode.AI && <AIView messages={messages} chatInput={chatInput} setChatInput={setChatInput} handleSendMessage={handleSendMessage} isTyping={isTyping} chatEndRef={chatEndRef} />}
-            {mode === AppMode.SETTINGS && <SettingsView storeProfile={storeProfile} setStoreProfile={setStoreProfile} handleImageUpload={handleImageUpload} t={t} />}
+            {mode === AppMode.SETTINGS && <SettingsView storeProfile={storeProfile} setStoreProfile={setStoreProfile} handleImageUpload={handleImageUpload} handleFullBackup={handleFullBackup} t={t} />}
           </div>
         </div>
       </main>
@@ -549,7 +661,7 @@ const App: React.FC = () => {
         )}
       </div>
 
-      <BillModal isOpen={isBillModalOpen} setIsOpen={setIsBillModalOpen} newBillTab={newBillTab} setNewBillTab={setNewBillTab} billItems={billItems} setBillItems={setBillItems} products={products} addToCart={addToCart} updateCartQuantity={updateCartQuantity} customerName={customerName} setCustomerName={setCustomerName} customerPhone={customerPhone} setCustomerPhone={setCustomerPhone} customerAddress={customerAddress} setCustomerAddress={setCustomerAddress} shippingCarrier={shippingCarrier} setShippingCarrier={setShippingCarrier} paymentMethod={paymentMethod} setPaymentMethod={setPaymentMethod} handleCheckout={handleCheckout} formatMoney={formatMoney} cartTotal={cartTotal} t={t} skuSearch={skuSearch} setSkuSearch={setSkuSearch} />
+      <BillModal isOpen={isBillModalOpen} setIsOpen={setIsBillModalOpen} newBillTab={newBillTab} setNewBillTab={setNewBillTab} billItems={billItems} setBillItems={setBillItems} products={products} addToCart={addToCart} updateCartQuantity={updateCartQuantity} customerName={customerName} setCustomerName={setCustomerName} customerPhone={customerPhone} setCustomerPhone={setCustomerPhone} customerAddress={customerAddress} setCustomerAddress={setCustomerAddress} shippingCarrier={shippingCarrier} setShippingCarrier={setShippingCarrier} paymentMethod={paymentMethod} setPaymentMethod={setPaymentMethod} handleCheckout={handleCheckout} formatMoney={formatMoney} cartTotal={cartTotal} t={t} skuSearch={skuSearch} setSkuSearch={setSkuSearch} isEditing={!!editingBill} />
       {isProductModalOpen && <ProductModal editingProduct={editingProduct} setIsProductModalOpen={setIsProductModalOpen} handleImageUpload={handleImageUpload} db={db} setEditingProduct={setEditingProduct} />}
       {isPromoModalOpen && <PromoModal editingPromo={editingPromo} setIsPromoModalOpen={setIsPromoModalOpen} products={products} promoSkusInput={promoSkusInput} setPromoSkusInput={setPromoSkusInput} db={db} t={t} />}
     </div>
@@ -619,7 +731,7 @@ const AIView = ({ messages, chatInput, setChatInput, handleSendMessage, isTyping
   </div>
 );
 
-const SettingsView = ({ storeProfile, setStoreProfile, handleImageUpload, t }: any) => (
+const SettingsView = ({ storeProfile, setStoreProfile, handleImageUpload, handleFullBackup, t }: any) => (
   <div className="space-y-6 animate-in fade-in max-w-2xl mx-auto">
       <h2 className="text-lg md:text-2xl font-black text-slate-800 flex items-center gap-2"><Settings className="text-sky-500" size={24}/> {t.menu_settings}</h2>
       <Card className="space-y-6 shadow-lg border-sky-50">
@@ -638,21 +750,31 @@ const SettingsView = ({ storeProfile, setStoreProfile, handleImageUpload, t }: a
         <div className="space-y-1"><label className="text-[10px] font-black text-slate-400 uppercase ml-1">ที่อยู่ร้าน / Address</label><textarea value={storeProfile.address} onChange={e=>setStoreProfile({...storeProfile, address: e.target.value})} className="w-full p-3 md:p-4 bg-slate-50 border rounded-xl font-bold outline-none text-sm h-24 focus:border-sky-500 focus:bg-white transition-colors" /></div>
         <button onClick={()=>{ alert('บันทึกข้อมูลสำเร็จ!'); window.location.reload(); }} className="w-full py-4 bg-sky-600 text-white rounded-xl font-black shadow-lg hover:bg-sky-700 transition-all flex items-center justify-center gap-2 active:scale-95"><Save size={18}/> {t.save}</button>
       </Card>
+
+      <div className="mt-8">
+        <h3 className="text-lg font-black text-slate-800 mb-4 flex items-center gap-2"><Database className="text-sky-500" size={20}/> {t.data_management}</h3>
+        <Card className="border-rose-50 shadow-sm space-y-4">
+          <p className="text-xs text-slate-500 font-bold mb-4 italic">* {t.backup_reminder}</p>
+          <button onClick={handleFullBackup} className="w-full py-4 bg-emerald-50 text-emerald-600 rounded-xl font-black border border-emerald-100 hover:bg-emerald-100 transition-all flex items-center justify-center gap-3">
+            <Download size={18}/> {t.backup_all}
+          </button>
+        </Card>
+      </div>
   </div>
 );
 
-const BillModal = ({ isOpen, setNewBillTab, newBillTab, billItems, setBillItems, products, addToCart, updateCartQuantity, customerName, setCustomerName, customerPhone, setCustomerPhone, customerAddress, setCustomerAddress, shippingCarrier, setShippingCarrier, paymentMethod, setPaymentMethod, handleCheckout, formatMoney, cartTotal, t, skuSearch, setSkuSearch, setIsOpen }: any) => {
+const BillModal = ({ isOpen, setNewBillTab, newBillTab, billItems, setBillItems, products, addToCart, updateCartQuantity, customerName, setCustomerName, customerPhone, setCustomerPhone, customerAddress, setCustomerAddress, shippingCarrier, setShippingCarrier, paymentMethod, setPaymentMethod, handleCheckout, formatMoney, cartTotal, t, skuSearch, setSkuSearch, setIsOpen, isEditing }: any) => {
   if (!isOpen) return null;
   return (
     <div className="fixed inset-0 bg-slate-950/95 z-[500] flex items-center justify-center backdrop-blur-xl animate-in zoom-in-95">
       <div className="bg-white w-full h-full md:max-w-[95vw] md:h-[90vh] md:rounded-[3rem] shadow-2xl flex flex-col md:flex-row overflow-hidden relative">
           <div className="flex items-center border-b md:hidden bg-white z-20">
             <button onClick={()=>setNewBillTab('items')} className={`flex-1 py-4 text-xs font-black border-b-2 ${newBillTab === 'items' ? 'border-sky-600 text-sky-600' : 'border-transparent text-slate-400'}`}>1. เลือกสินค้า</button>
-            <button onClick={()=>setNewBillTab('checkout')} className={`flex-1 py-4 text-xs font-black border-b-2 ${newBillTab === 'checkout' ? 'border-sky-600 text-sky-600' : 'border-transparent text-slate-400'}`}>2. เช็คบิล ({billItems.length})</button>
+            <button onClick={()=>setNewBillTab('checkout')} className={`flex-1 py-4 text-xs font-black border-b-2 ${newBillTab === 'checkout' ? 'border-sky-600 text-sky-600' : 'border-transparent text-slate-400'}`}>2. ข้อมูลบิล ({billItems.length})</button>
             <button onClick={()=>setIsOpen(false)} className="px-4 text-slate-400"><X size={20}/></button>
           </div>
           <div className={`flex-1 flex flex-col p-4 md:p-8 overflow-hidden bg-white ${newBillTab === 'items' ? 'flex' : 'hidden md:flex'}`}>
-            <div className="hidden md:flex justify-between items-center mb-6"><h3 className="text-2xl font-black text-slate-800">เลือกสินค้า</h3></div>
+            <div className="hidden md:flex justify-between items-center mb-6"><h3 className="text-2xl font-black text-slate-800">{isEditing ? 'ปรับปรุงรายการสินค้า' : 'เลือกสินค้า'}</h3></div>
             <div className="relative mb-6"><Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" size={18}/><input value={skuSearch} onChange={e=>setSkuSearch(e.target.value)} placeholder={t.search_sku} className="w-full p-4 pl-12 bg-slate-50 border rounded-xl font-bold outline-none" /></div>
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 overflow-y-auto flex-1 custom-scrollbar pb-32 md:pb-0">
                 {products.filter((p:any) => !skuSearch || p.name.includes(skuSearch) || p.code.includes(skuSearch)).map((p:any) => (
@@ -668,7 +790,7 @@ const BillModal = ({ isOpen, setNewBillTab, newBillTab, billItems, setBillItems,
             </div>
           </div>
           <div className={`w-full md:w-[40%] bg-slate-50 border-l flex flex-col h-full p-4 md:p-8 overflow-hidden ${newBillTab === 'checkout' ? 'flex' : 'hidden md:flex'}`}>
-            <div className="hidden md:flex justify-between items-center mb-6"><h3 className="text-2xl font-black text-slate-800">ตะกร้าสินค้า</h3><button onClick={()=>setIsOpen(false)} className="p-2 bg-white border rounded-full"><X size={20}/></button></div>
+            <div className="hidden md:flex justify-between items-center mb-6"><h3 className="text-2xl font-black text-slate-800">{isEditing ? 'แก้ไขข้อมูลบิล' : 'ตะกร้าสินค้า'}</h3><button onClick={()=>setIsOpen(false)} className="p-2 bg-white border rounded-full"><X size={20}/></button></div>
             <div className="space-y-3 mb-4 overflow-y-auto max-h-[40%] md:max-h-none pr-1">
                 <input value={customerName} onChange={e=>setCustomerName(e.target.value)} placeholder="ชื่อลูกค้า" className="w-full p-3 bg-white border rounded-xl font-bold text-xs outline-none" />
                 <input value={customerPhone} onChange={e=>setCustomerPhone(e.target.value)} placeholder="เบอร์โทรศัพท์" className="w-full p-3 bg-white border rounded-xl font-bold text-xs outline-none" />
@@ -688,7 +810,7 @@ const BillModal = ({ isOpen, setNewBillTab, newBillTab, billItems, setBillItems,
             </div>
             <div className="mt-auto bg-white p-6 rounded-[2rem] border-t">
                 <div className="flex justify-between items-center mb-4"><div><span className="text-[10px] font-black text-slate-400 uppercase">ยอดรวมสุทธิ</span><p className="text-3xl font-black text-sky-600">{formatMoney(cartTotal)}</p></div></div>
-                <button disabled={billItems.length === 0} onClick={handleCheckout} className="w-full py-5 bg-sky-600 disabled:bg-slate-200 text-white rounded-2xl font-black text-xl shadow-xl flex items-center justify-center gap-3"><CheckCircle2 size={24}/> ยืนยันการสั่งซื้อ</button>
+                <button disabled={billItems.length === 0} onClick={handleCheckout} className="w-full py-5 bg-sky-600 disabled:bg-slate-200 text-white rounded-2xl font-black text-xl shadow-xl flex items-center justify-center gap-3"><CheckCircle2 size={24}/> {isEditing ? 'บันทึกการแก้ไข' : 'ยืนยันการสั่งซื้อ'}</button>
             </div>
           </div>
       </div>
