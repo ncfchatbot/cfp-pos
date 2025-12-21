@@ -562,7 +562,7 @@ const ReportsView = ({ reportStats, formatMoney }: any) => (
   </div>
 );
 
-const BillModal = ({ isOpen, setNewBillTab, newBillTab, billItems, setBillItems, products, productCategories, addToCart, updateCartQuantity, customerName, setCustomerName, customerPhone, setCustomerPhone, customerAddress, setCustomerAddress, shippingCarrier, setShippingCarrier, paymentMethod, setPaymentMethod, handleCheckout, formatMoney, cartTotal, skuSearch, setSkuSearch, setIsOpen, isEditing }: any) => {
+const BillModal = ({ isOpen, setNewBillTab, newBillTab, billItems, setBillItems, products, productCategories, addToCart, updateCartQuantity, customerName, setCustomerName, customerPhone, setCustomerPhone, customerAddress, setCustomerAddress, shippingCarrier, setShippingCarrier, paymentMethod, setPaymentMethod, handleCheckout, formatMoney, cartTotal, skuSearch, setSkuSearch, setIsOpen, isEditing, t }: any) => {
   const [batchQty, setBatchQty] = useState<number>(1);
   const [modalCatFilter, setModalCatFilter] = useState('All');
 
@@ -622,7 +622,12 @@ const BillModal = ({ isOpen, setNewBillTab, newBillTab, billItems, setBillItems,
                 <input value={customerPhone} onChange={e=>setCustomerPhone(e.target.value)} placeholder="เบอร์โทรศัพท์" className="w-full p-3 bg-white border-2 border-transparent focus:border-sky-500 rounded-xl font-bold text-xs outline-none" />
                 <textarea value={customerAddress} onChange={e=>setCustomerAddress(e.target.value)} placeholder="ที่อยู่จัดส่ง" className="w-full p-3 bg-white border-2 border-transparent focus:border-sky-500 rounded-xl font-bold h-20 text-xs resize-none outline-none" />
                 <div className="grid grid-cols-2 gap-2">
-                    <select value={shippingCarrier} onChange={e=>setShippingCarrier(e.target.value as any)} className="p-3 bg-white border rounded-xl font-bold text-[10px]"><option value="None">รับเองหน้าร้าน</option><option value="Anuchit">Anuchit</option><option value="Meexai">Meexai</option></select>
+                    <select value={shippingCarrier} onChange={e=>setShippingCarrier(e.target.value as any)} className="p-3 bg-white border rounded-xl font-bold text-[10px]">
+                      <option value="None">{t.ship_none}</option>
+                      <option value="Anuchit">{t.ship_anuchit}</option>
+                      <option value="Meexai">{t.ship_meexai}</option>
+                      <option value="Rungarun">{t.ship_rungarun}</option>
+                    </select>
                     <select value={paymentMethod} onChange={e=>setPaymentMethod(e.target.value as any)} className="p-3 bg-white border rounded-xl font-bold text-[10px]"><option value="Transfer">โอนเงิน</option><option value="COD">COD</option></select>
                 </div>
             </div>

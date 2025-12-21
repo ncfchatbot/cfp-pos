@@ -32,13 +32,17 @@ export const translations: Record<Language, any> = {
     setting_address: 'ທີ່ຢູ່ຮ້ານ',
     save: 'ບັນທຶກ',
     search_sku: 'ຄົ້ນຫາ SKU ຫຼື ຊື່ສິນຄ້າ',
-    promo_sku_placeholder: 'ກອກລະຫັດ SKU ແຍກດ້ວຍຈຸດ (,) ເພື່ອເພີ່ມຫຼາຍລายການ',
+    promo_sku_placeholder: 'ກອກລະຫັດ SKU ແຍກດ້ວຍຈຸດ (,) ເພື່ອເພີ່ມຫຼາຍລາຍການ',
     data_management: 'ຈັດການຂໍ້ມູນ',
     clear_sales: 'ລ້າງປະຫວັດການຂາຍ',
     clear_stock: 'ລ້າງຂໍ້ມູນສິນຄ້າ',
     backup_all: 'ສຳຮອງຂໍ້ມູນທັງໝົດ (Full Backup)',
     backup_reminder: 'ຢ່າລືມສຳຮອງຂໍ້ມູນທຸກໆທ້າຍເດືອນ!',
-    confirm_clear: 'ທ່ານແນ່ໃຈບໍ່ທີ່ຈະລົບຂໍ້ມູນທັງໝົດ? ຂໍ້ມູນບໍ່ສາມາດກູ້ຄືນໄດ້!'
+    confirm_clear: 'ທ່ານແນ່ໃຈບໍ່ທີ່ຈະລົບຂໍ້ມູນທັງໝົດ? ຂໍ້ມູນບໍ່ສາມາດກູ້ຄືນໄດ້!',
+    ship_none: 'ຮັບເອງໜ້າຮ້ານ',
+    ship_anuchit: 'Anuchit (ອານຸສິດ)',
+    ship_meexai: 'Meexai (ມີໄຊ)',
+    ship_rungarun: 'Rungarun (ຮຸ່ງອາລຸນ)'
   },
   th: {
     menu_dashboard: 'ภาพรวม (Dashboard)',
@@ -76,7 +80,11 @@ export const translations: Record<Language, any> = {
     clear_stock: 'ล้างข้อมูลสินค้า',
     backup_all: 'สำรองข้อมูลทั้งหมด (Full Backup)',
     backup_reminder: 'อย่าลืมสำรองข้อมูลทุกสิ้นเดือนเพื่อความปลอดภัย!',
-    confirm_clear: 'คุณแน่ใจหรือไม่ที่จะลบข้อมูลทั้งหมด? ข้อมูลที่ลบแล้วไม่สามารถกู้คืนได้!'
+    confirm_clear: 'คุณแน่ใจหรือไม่ที่จะลบข้อมูลทั้งหมด? ข้อมูลที่ลบแล้วไม่สามารถกู้คืนได้!',
+    ship_none: 'รับเองหน้าร้าน',
+    ship_anuchit: 'Anuchit (อนุสิต)',
+    ship_meexai: 'Meexai (มีไซ)',
+    ship_rungarun: 'Rungarun (รุ่งอรุณ)'
   },
   en: {
     menu_dashboard: 'Dashboard',
@@ -113,6 +121,10 @@ export const translations: Record<Language, any> = {
     clear_stock: 'Clear All Products',
     backup_all: 'Full Data Backup (JSON)',
     backup_reminder: 'Don\'t forget to backup your data every month!',
-    confirm_clear: 'Are you sure? This action cannot be undone!'
+    confirm_clear: 'Are you sure? This action cannot be undone!',
+    ship_none: 'Pick up at store',
+    ship_anuchit: 'Anuchit',
+    ship_meexai: 'Meexai',
+    ship_rungarun: 'Rungarun'
   }
 };
