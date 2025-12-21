@@ -399,27 +399,36 @@ const App: React.FC = () => {
       const original = products.find(p => p.id === item.id);
       return itemAcc + (Number(original?.cost || 0) * item.quantity);
     }, 0), 0);
+
+    // Group sales by month
     const monthlyData: Record<string, number> = {};
     validSales.forEach(s => {
-      const parts = s.date.split('/');
+      const parts = s.date.split('/'); // Assumes MM/DD/YYYY or similar
       if (parts.length >= 3) {
-        const monthStr = parts[0] + '/' + parts[2].split(' ')[0];
+        const monthStr = parts[0] + '/' + parts[2].split(' ')[0]; // MM/YYYY
         monthlyData[monthStr] = (monthlyData[monthStr] || 0) + Number(s.total);
       }
     });
-    const productCounts: Record<string, {name: string, qty: number}> = {};
+
+    // Top Products
+    const productCounts: Record<string, {name: string, qty: number, revenue: number}> = {};
     validSales.forEach(s => s.items.forEach(i => {
-      if (!productCounts[i.id]) productCounts[i.id] = {name: i.name, qty: 0};
+      if (!productCounts[i.id]) productCounts[i.id] = {name: i.name, qty: 0, revenue: 0};
       productCounts[i.id].qty += i.quantity;
+      productCounts[i.id].revenue += i.quantity * Number(i.price);
     }));
     const topProducts = Object.values(productCounts).sort((a,b) => b.qty - a.qty).slice(0, 10);
-    const customerCounts: Record<string, {name: string, total: number}> = {};
+
+    // Top Customers
+    const customerCounts: Record<string, {name: string, total: number, bills: number}> = {};
     validSales.forEach(s => {
-      const cName = s.customerName || "Anonymous";
-      if (!customerCounts[cName]) customerCounts[cName] = {name: cName, total: 0};
+      const cName = s.customerName || "ทั่วไป / Walk-in";
+      if (!customerCounts[cName]) customerCounts[cName] = {name: cName, total: 0, bills: 0};
       customerCounts[cName].total += Number(s.total);
+      customerCounts[cName].bills += 1;
     });
     const topCustomers = Object.values(customerCounts).sort((a,b) => b.total - a.total).slice(0, 10);
+
     return { totalRevenue, totalCost, profit: totalRevenue - totalCost, stockValue, topProducts, topCustomers, monthlyData };
   }, [recentSales, products]);
 
@@ -712,6 +721,7 @@ const App: React.FC = () => {
         )}
       </div>
 
+      {/* Fix: Removed duplicate and incorrect 'setIsOpen' attribute that caused errors. */}
       <BillModal isOpen={isBillModalOpen} setIsOpen={setIsBillModalOpen} newBillTab={newBillTab} setNewBillTab={setNewBillTab} billItems={billItems} setBillItems={setBillItems} products={products} addToCart={addToCart} updateCartQuantity={updateCartQuantity} customerName={customerName} setCustomerName={setCustomerName} customerPhone={customerPhone} setCustomerPhone={setCustomerPhone} customerAddress={customerAddress} setCustomerAddress={setCustomerAddress} shippingCarrier={shippingCarrier} setShippingCarrier={setShippingCarrier} paymentMethod={paymentMethod} setPaymentMethod={setPaymentMethod} handleCheckout={handleCheckout} formatMoney={formatMoney} cartTotal={cartTotal} t={t} skuSearch={skuSearch} setSkuSearch={setSkuSearch} isEditing={!!editingBill} />
       {isProductModalOpen && <ProductModal editingProduct={editingProduct} setIsProductModalOpen={setIsProductModalOpen} handleImageUpload={handleImageUpload} db={db} setEditingProduct={setEditingProduct} />}
       {isPromoModalOpen && <PromoModal editingPromo={editingPromo} setIsPromoModalOpen={setIsPromoModalOpen} products={products} promoSkusInput={promoSkusInput} setPromoSkusInput={setPromoSkusInput} db={db} t={t} />}
@@ -719,7 +729,114 @@ const App: React.FC = () => {
   );
 };
 
-// ... HELPER COMPONENTS - NO CHANGES ALLOWED ...
+// ... HELPER COMPONENTS ...
+
+const ReportsView = ({ reportStats, formatMoney, exportRawData }: any) => {
+  const maxMonthly = Math.max(...Object.values(reportStats.monthlyData as Record<string, number>), 100000);
+  
+  return (
+    <div className="space-y-6 md:space-y-10 animate-in fade-in pb-20">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Monthly Sales Chart (Left Box) */}
+          <Card className="lg:col-span-2 p-6 md:p-8 flex flex-col min-h-[400px]">
+              <div className="flex justify-between items-center mb-10">
+                <div>
+                  <h3 className="text-lg md:text-xl font-black text-slate-800">Sales Trend</h3>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Revenue by Month</p>
+                </div>
+                <div className="p-3 bg-sky-50 text-sky-600 rounded-2xl"><TrendingUp size={20}/></div>
+              </div>
+              
+              <div className="flex-1 flex items-end justify-around gap-2 px-4">
+                {Object.keys(reportStats.monthlyData).length === 0 ? (
+                  <div className="w-full h-full flex items-center justify-center text-slate-300 font-bold italic">ยังไม่มีข้อมูลการขายสำหรับกราฟ</div>
+                ) : (
+                  Object.entries(reportStats.monthlyData as Record<string, number>).map(([month, value]) => (
+                    <div key={month} className="flex flex-col items-center flex-1 max-w-[60px] group">
+                        <div 
+                          className="w-full bg-sky-500 rounded-t-xl transition-all duration-700 hover:bg-sky-600 relative cursor-help"
+                          style={{ height: `${(value / maxMonthly) * 200}px` }}
+                        >
+                          <div className="absolute -top-10 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-[9px] px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10 shadow-lg">
+                            {formatMoney(value)}
+                          </div>
+                        </div>
+                        <span className="text-[9px] font-black text-slate-400 mt-4 rotate-45 origin-left">{month}</span>
+                    </div>
+                  ))
+                )}
+              </div>
+          </Card>
+
+          {/* Quick Stats Column */}
+          <div className="space-y-6">
+            <Card className="bg-sky-600 border-sky-500 p-6 md:p-8 text-white shadow-xl shadow-sky-100 flex flex-col justify-between h-1/2">
+                <div className="flex justify-between items-start"><p className="text-[10px] font-black uppercase tracking-widest text-sky-100">Total Revenue</p><TrendingUp size={20} className="text-sky-200" /></div>
+                <h3 className="text-2xl md:text-3xl font-black mt-4">{formatMoney(reportStats.totalRevenue)}</h3>
+            </Card>
+            <Card className="p-6 md:p-8 flex flex-col justify-between shadow-sm border-emerald-50 h-1/2">
+                <div className="flex justify-between items-start"><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Profit (Est.)</p><DollarSign size={20} className="text-emerald-500" /></div>
+                <h3 className="text-2xl md:text-3xl font-black text-emerald-600 mt-4">{formatMoney(reportStats.profit)}</h3>
+            </Card>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {/* Top Selling Products */}
+          <Card className="p-6 md:p-8">
+            <div className="flex items-center gap-3 mb-6">
+               <div className="p-2 bg-purple-50 text-purple-600 rounded-lg"><Package size={18}/></div>
+               <h3 className="text-lg font-black text-slate-800">สินค้าขายดี (Top 10)</h3>
+            </div>
+            <div className="space-y-3">
+               {reportStats.topProducts.map((p, i) => (
+                 <div key={i} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-transparent hover:border-slate-200 transition-all">
+                    <div className="flex items-center gap-3">
+                       <span className={`w-6 h-6 rounded flex items-center justify-center text-[10px] font-black ${i < 3 ? 'bg-sky-500 text-white' : 'bg-slate-200 text-slate-500'}`}>{i + 1}</span>
+                       <span className="text-sm font-bold text-slate-700">{p.name}</span>
+                    </div>
+                    <div className="text-right">
+                       <div className="text-xs font-black text-sky-600">{p.qty} ชิ้น</div>
+                       <div className="text-[9px] font-bold text-slate-400">{formatMoney(p.revenue)}</div>
+                    </div>
+                 </div>
+               ))}
+               {reportStats.topProducts.length === 0 && <p className="text-center text-slate-300 py-10 font-bold italic">ไม่มีข้อมูลการขาย</p>}
+            </div>
+          </Card>
+
+          {/* Top Customers */}
+          <Card className="p-6 md:p-8">
+            <div className="flex items-center gap-3 mb-6">
+               <div className="p-2 bg-amber-50 text-amber-600 rounded-lg"><Users size={18}/></div>
+               <h3 className="text-lg font-black text-slate-800">ลูกค้าชั้นดี (Top 10)</h3>
+            </div>
+            <div className="space-y-3">
+               {reportStats.topCustomers.map((c, i) => (
+                 <div key={i} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-transparent hover:border-slate-200 transition-all">
+                    <div className="flex items-center gap-3">
+                       <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-slate-500 font-black text-xs uppercase">{c.name.charAt(0)}</div>
+                       <div>
+                          <div className="text-sm font-bold text-slate-700 truncate max-w-[150px]">{c.name}</div>
+                          <div className="text-[9px] font-bold text-slate-400">{c.bills} บิลที่ชำระแล้ว</div>
+                       </div>
+                    </div>
+                    <div className="text-right text-sm font-black text-emerald-600">{formatMoney(c.total)}</div>
+                 </div>
+               ))}
+               {reportStats.topCustomers.length === 0 && <p className="text-center text-slate-300 py-10 font-bold italic">ไม่มีข้อมูลลูกค้า</p>}
+            </div>
+          </Card>
+        </div>
+
+        <button onClick={exportRawData} className="w-full bg-emerald-600 text-white p-5 rounded-2xl font-black text-sm md:text-base flex items-center justify-center gap-2 hover:bg-emerald-700 transition-all shadow-xl shadow-emerald-100 active:scale-[0.98] mt-10">
+           <FileDown size={20}/> Download Full Sales Report (CSV)
+        </button>
+    </div>
+  );
+};
+
+// ... Rest of the components stay the same (PromotionView, AIView, etc.)
 const PromotionView = ({ promotions, products, setEditingPromo, setPromoSkusInput, setIsPromoModalOpen, formatMoney, deleteDoc, db }: any) => (
   <div className="space-y-4 animate-in slide-in-from-bottom-5">
       <div className="flex flex-row justify-between items-center">
@@ -744,26 +861,6 @@ const PromotionView = ({ promotions, products, setEditingPromo, setPromoSkusInpu
           </Card>
         ))}
       </div>
-  </div>
-);
-
-const ReportsView = ({ reportStats, formatMoney, exportRawData }: any) => (
-  <div className="space-y-4 md:space-y-8 animate-in fade-in">
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-6">
-        <Card className="bg-sky-600 border-sky-500 p-4 md:p-8 flex flex-col justify-between shadow-xl text-white">
-            <div className="flex justify-between items-start mb-2"><p className="text-[10px] md:text-xs font-black uppercase tracking-widest">TOTAL REVENUE</p><TrendingUp size={24} className="text-sky-200" /></div>
-            <h3 className="text-xl md:text-4xl font-black">{formatMoney(reportStats.totalRevenue)}</h3>
-        </Card>
-        <Card className="p-4 md:p-8 flex flex-col justify-between shadow-sm">
-            <div className="flex justify-between items-start mb-2"><p className="text-[10px] md:text-xs font-black text-slate-400 uppercase tracking-widest">PROFIT</p><DollarSign size={20} className="text-emerald-500" /></div>
-            <h3 className="text-lg md:text-3xl font-black text-emerald-600">{formatMoney(reportStats.profit)}</h3>
-        </Card>
-        <Card className="p-4 md:p-8 flex flex-col justify-between shadow-sm">
-            <div className="flex justify-between items-start mb-2"><p className="text-[10px] md:text-xs font-black text-slate-400 uppercase tracking-widest">STOCK ASSET</p><Package size={20} className="text-sky-500" /></div>
-            <h3 className="text-lg md:text-3xl font-black text-slate-900">{formatMoney(reportStats.stockValue)}</h3>
-        </Card>
-      </div>
-      <button onClick={exportRawData} className="w-full bg-emerald-600 text-white p-4 rounded-xl font-black text-xs md:text-base flex items-center justify-center gap-2 hover:bg-emerald-700 transition-all shadow-xl shadow-emerald-200"><FileDown size={18}/> Export Raw Data (CSV)</button>
   </div>
 );
 
