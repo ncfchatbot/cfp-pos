@@ -4,7 +4,7 @@ import {
   Plus, Minus, Trash2, Edit, LayoutDashboard, Settings, 
   Package, ClipboardList, BarChart3, Tag, X, Search,
   ShoppingCart, Coffee, TrendingUp, CheckCircle2, Save, Send, Bot, 
-  User, Download, Upload, AlertCircle, FileText, Smartphone, Truck, CreditCard, Building2, MapPin, Image as ImageIcon, FileUp, FileDown, ShieldAlert, Wifi, WifiOff, DollarSign, PieChart, ArrowRight, BarChart2, Users, ChevronRight, List, Phone, Printer, Database, RotateCcw
+  User, Download, Upload, AlertCircle, FileText, Smartphone, Truck, CreditCard, Building2, MapPin, Image as ImageIcon, FileUp, FileDown, ShieldAlert, Wifi, WifiOff, DollarSign, PieChart, ArrowRight, BarChart2, Users, ChevronRight, List, Phone, Printer, Database, RotateCcw, Filter
 } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import { AppMode, Product, CartItem, SaleRecord, StoreProfile, Language, Promotion, PromoTier, Role, Message, LogisticsProvider, OrderStatus, PaymentMethod } from './types';
@@ -43,6 +43,7 @@ const App: React.FC = () => {
   const [paymentStatus, setPaymentStatus] = useState<OrderStatus>('Paid');
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('Transfer');
   const [skuSearch, setSkuSearch] = useState('');
+  const [stockCategoryFilter, setStockCategoryFilter] = useState('All');
 
   // Editing state for Orders
   const [editingBill, setEditingBill] = useState<SaleRecord | null>(null);
@@ -95,6 +96,34 @@ const App: React.FC = () => {
     const unsubPr = onSnapshot(collection(db, 'promotions'), s => setPromotions(s.docs.map(d => ({ ...d.data(), id: d.id } as Promotion))));
     return () => { unsubP(); unsubS(); unsubPr(); };
   }, []);
+
+  // Filter and Sort Products for UI
+  const productCategories = useMemo(() => {
+    const cats = Array.from(new Set(products.map(p => p.category || 'General')));
+    return ['All', ...cats.sort()];
+  }, [products]);
+
+  const sortedAndFilteredProducts = useMemo(() => {
+    let list = [...products];
+    if (stockCategoryFilter !== 'All') {
+      list = list.filter(p => (p.category || 'General') === stockCategoryFilter);
+    }
+    return list.sort((a, b) => a.code.localeCompare(b.code));
+  }, [products, stockCategoryFilter]);
+
+  // Grouped products for Print Report
+  const groupedProductsForPrint = useMemo(() => {
+    const groups: Record<string, Product[]> = {};
+    products.forEach(p => {
+      const cat = p.category || 'General';
+      if (!groups[cat]) groups[cat] = [];
+      groups[cat].push(p);
+    });
+    return Object.keys(groups).sort().map(catName => ({
+      name: catName,
+      items: groups[catName].sort((a, b) => a.code.localeCompare(b.code))
+    }));
+  }, [products]);
 
   // AI Helpers
   const scrollToBottom = () => {
@@ -516,14 +545,28 @@ const App: React.FC = () => {
                        </button>
                     </div>
                  </div>
+
+                 {/* Category Filter for Stock Screen */}
+                 <div className="flex flex-wrap gap-2 mb-4 bg-white p-2 rounded-2xl border">
+                    {productCategories.map(cat => (
+                      <button 
+                        key={cat} 
+                        onClick={() => setStockCategoryFilter(cat)}
+                        className={`px-4 py-2 rounded-xl text-xs font-black transition-all ${stockCategoryFilter === cat ? 'bg-sky-600 text-white shadow-lg shadow-sky-100' : 'bg-slate-50 text-slate-400 hover:bg-slate-100'}`}
+                      >
+                        {cat === 'All' ? 'รวมทุก SKUs' : cat}
+                      </button>
+                    ))}
+                 </div>
+
                  <div className="bg-white rounded-[1.2rem] md:rounded-[2.5rem] border shadow-sm overflow-hidden">
                    <div className="overflow-x-auto">
                     <table className="w-full text-left min-w-[650px]">
                        <thead className="bg-slate-50 border-b text-[9px] md:text-[10px] font-black uppercase text-slate-400 tracking-widest">
-                          <tr><th className="px-6 py-4">Item</th><th className="px-4 py-4 text-right">Cost</th><th className="px-4 py-4 text-right">Price</th><th className="px-4 py-4 text-center">Stock</th><th className="px-4 py-4 text-center">Edit</th></tr>
+                          <tr><th className="px-6 py-4">Item (Sorted by SKU)</th><th className="px-4 py-4">Category</th><th className="px-4 py-4 text-right">Cost</th><th className="px-4 py-4 text-right">Price</th><th className="px-4 py-4 text-center">Stock</th><th className="px-4 py-4 text-center">Edit</th></tr>
                        </thead>
                        <tbody className="divide-y text-xs md:text-sm font-bold">
-                          {products.map(p => (
+                          {sortedAndFilteredProducts.map(p => (
                             <tr key={p.id} className="hover:bg-slate-50 transition-colors">
                                <td className="px-6 py-4 flex items-center gap-3">
                                   <div className="w-8 h-8 md:w-12 md:h-12 rounded-lg bg-slate-100 border overflow-hidden flex-shrink-0 flex items-center justify-center font-black">
@@ -531,6 +574,7 @@ const App: React.FC = () => {
                                   </div>
                                   <div className="truncate"><div className="text-slate-800 truncate max-w-[120px]">{p.name}</div><div className="text-[9px] text-slate-300">SKU: {p.code}</div></div>
                                </td>
+                               <td className="px-4 py-4"><span className="px-2 py-0.5 bg-slate-100 text-slate-500 rounded text-[9px] font-black uppercase">{p.category || 'General'}</span></td>
                                <td className="px-4 py-4 text-right text-slate-400 whitespace-nowrap">{formatMoney(p.cost)}</td>
                                <td className="px-4 py-4 text-right text-sky-600 font-black whitespace-nowrap">{formatMoney(p.price)}</td>
                                <td className="px-4 py-4 text-center"><span className={`px-2 py-0.5 rounded-lg text-[9px] font-black ${Number(p.stock) <= 5 ? 'bg-rose-500 text-white' : 'bg-emerald-50 text-emerald-600'}`}>{p.stock}</span></td>
@@ -559,27 +603,34 @@ const App: React.FC = () => {
           <div className="p-8 bg-white min-h-screen text-black">
             <div className="text-center mb-10 border-b border-black pb-4">
               <h1 className="text-2xl font-black">{storeProfile.name}</h1>
-              <h2 className="text-lg font-bold">ใบตรวจสอบสต็อกสินค้า (Inventory Audit)</h2>
+              <h2 className="text-lg font-bold">ใบตรวจสอบสต็อกสินค้า (แบ่งกลุ่มและเรียงตาม SKU)</h2>
               <p className="text-[10px] mt-2 font-bold">พิมพ์เมื่อ: {new Date().toLocaleString('th-TH')}</p>
             </div>
-            <table className="w-full border-collapse border border-black">
-              <thead>
-                <tr className="bg-slate-50">
-                  <th className="p-2 text-xs font-black border border-black text-left">รหัสสินค้า (SKU)</th>
-                  <th className="p-2 text-xs font-black border border-black text-left">ชื่อสินค้า</th>
-                  <th className="p-2 text-xs font-black border border-black text-center w-32">จำนวนคงเหลือ</th>
-                </tr>
-              </thead>
-              <tbody>
-                {products.map((p) => (
-                  <tr key={p.id}>
-                    <td className="p-2 text-xs font-bold border border-black">{p.code}</td>
-                    <td className="p-2 text-xs border border-black">{p.name}</td>
-                    <td className="p-2 text-xs text-center font-black border border-black">{p.stock}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            
+            {groupedProductsForPrint.map((group) => (
+              <div key={group.name} className="mb-10 break-inside-avoid">
+                <h3 className="text-sm font-black mb-2 bg-slate-100 p-1 border border-black uppercase tracking-widest">{group.name}</h3>
+                <table className="w-full border-collapse border border-black">
+                  <thead>
+                    <tr className="bg-slate-50">
+                      <th className="p-2 text-[10px] font-black border border-black text-left w-32">รหัสสินค้า (SKU)</th>
+                      <th className="p-2 text-[10px] font-black border border-black text-left">ชื่อสินค้า</th>
+                      <th className="p-2 text-[10px] font-black border border-black text-center w-24">จำนวน</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {group.items.map((p) => (
+                      <tr key={p.id}>
+                        <td className="p-2 text-[10px] font-bold border border-black">{p.code}</td>
+                        <td className="p-2 text-[10px] border border-black">{p.name}</td>
+                        <td className="p-2 text-[10px] text-center font-black border border-black">{p.stock}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ))}
+
             <div className="mt-20 grid grid-cols-2 gap-20">
                <div className="text-center space-y-12">
                   <div className="border-b border-black w-full"></div>
@@ -832,7 +883,10 @@ const ProductModal = ({ editingProduct, setIsProductModalOpen, handleImageUpload
           <input name="name" required defaultValue={editingProduct?.name} placeholder="ชื่อสินค้า" className="w-full p-3 bg-slate-50 border rounded-xl font-bold text-sm outline-none" />
           <input name="code" required defaultValue={editingProduct?.code} placeholder="รหัส SKU" className="w-full p-3 bg-slate-50 border rounded-xl font-bold text-sm outline-none" />
           <div className="grid grid-cols-2 gap-4"><input name="cost" type="number" required defaultValue={editingProduct?.cost} placeholder="ราคาทุน" className="w-full p-3 bg-slate-50 border rounded-xl font-bold text-sm outline-none" /><input name="price" type="number" required defaultValue={editingProduct?.price} placeholder="ราคาขาย" className="w-full p-3 bg-sky-50 border-sky-100 rounded-xl font-black text-sky-600 text-sm outline-none" /></div>
-          <input name="stock" type="number" required defaultValue={editingProduct?.stock} placeholder="จำนวนคงเหลือ" className="w-full p-3 bg-slate-50 border rounded-xl font-bold text-sm outline-none" />
+          <div className="grid grid-cols-2 gap-4">
+            <input name="stock" type="number" required defaultValue={editingProduct?.stock} placeholder="จำนวนคงเหลือ" className="w-full p-3 bg-slate-50 border rounded-xl font-bold text-sm outline-none" />
+            <input name="category" defaultValue={editingProduct?.category} placeholder="กลุ่มสินค้า (Category)" className="w-full p-3 bg-slate-50 border rounded-xl font-bold text-sm outline-none" />
+          </div>
           <button type="submit" className="w-full py-4 bg-sky-600 text-white rounded-xl font-black shadow-xl mt-4">บันทึกสินค้า</button>
         </form>
     </Card>
