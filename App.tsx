@@ -180,7 +180,7 @@ const App: React.FC = () => {
   };
 
   const updateCartQuantity = (id: string, qty: number) => {
-    const safeQty = Math.max(1, qty);
+    const safeQty = isNaN(qty) ? 0 : Math.max(1, qty);
     setBillItems(prev => prev.map(it => {
       if (it.id === id) {
         const nPrice = getProductPrice(it, safeQty);
@@ -721,7 +721,6 @@ const App: React.FC = () => {
         )}
       </div>
 
-      {/* Fix: Removed duplicate and incorrect 'setIsOpen' attribute that caused errors. */}
       <BillModal isOpen={isBillModalOpen} setIsOpen={setIsBillModalOpen} newBillTab={newBillTab} setNewBillTab={setNewBillTab} billItems={billItems} setBillItems={setBillItems} products={products} addToCart={addToCart} updateCartQuantity={updateCartQuantity} customerName={customerName} setCustomerName={setCustomerName} customerPhone={customerPhone} setCustomerPhone={setCustomerPhone} customerAddress={customerAddress} setCustomerAddress={setCustomerAddress} shippingCarrier={shippingCarrier} setShippingCarrier={setShippingCarrier} paymentMethod={paymentMethod} setPaymentMethod={setPaymentMethod} handleCheckout={handleCheckout} formatMoney={formatMoney} cartTotal={cartTotal} t={t} skuSearch={skuSearch} setSkuSearch={setSkuSearch} isEditing={!!editingBill} />
       {isProductModalOpen && <ProductModal editingProduct={editingProduct} setIsProductModalOpen={setIsProductModalOpen} handleImageUpload={handleImageUpload} db={db} setEditingProduct={setEditingProduct} />}
       {isPromoModalOpen && <PromoModal editingPromo={editingPromo} setIsPromoModalOpen={setIsPromoModalOpen} products={products} promoSkusInput={promoSkusInput} setPromoSkusInput={setPromoSkusInput} db={db} t={t} />}
@@ -836,7 +835,6 @@ const ReportsView = ({ reportStats, formatMoney, exportRawData }: any) => {
   );
 };
 
-// ... Rest of the components stay the same (PromotionView, AIView, etc.)
 const PromotionView = ({ promotions, products, setEditingPromo, setPromoSkusInput, setIsPromoModalOpen, formatMoney, deleteDoc, db }: any) => (
   <div className="space-y-4 animate-in slide-in-from-bottom-5">
       <div className="flex flex-row justify-between items-center">
@@ -939,26 +937,41 @@ const BillModal = ({ isOpen, setNewBillTab, newBillTab, billItems, setBillItems,
           </div>
           <div className={`w-full md:w-[40%] bg-slate-50 border-l flex flex-col h-full p-4 md:p-8 overflow-hidden ${newBillTab === 'checkout' ? 'flex' : 'hidden md:flex'}`}>
             <div className="hidden md:flex justify-between items-center mb-6"><h3 className="text-2xl font-black text-slate-800">{isEditing ? 'แก้ไขข้อมูลบิล' : 'ตะกร้าสินค้า'}</h3><button onClick={()=>setIsOpen(false)} className="p-2 bg-white border rounded-full"><X size={20}/></button></div>
-            <div className="space-y-3 mb-4 overflow-y-auto max-h-[40%] md:max-h-none pr-1">
+            <div className="space-y-3 mb-4 overflow-y-auto max-h-[30%] md:max-h-none pr-1">
                 <input value={customerName} onChange={e=>setCustomerName(e.target.value)} placeholder="ชื่อลูกค้า" className="w-full p-3 bg-white border rounded-xl font-bold text-xs outline-none" />
                 <input value={customerPhone} onChange={e=>setCustomerPhone(e.target.value)} placeholder="เบอร์โทรศัพท์" className="w-full p-3 bg-white border rounded-xl font-bold text-xs outline-none" />
                 <textarea value={customerAddress} onChange={e=>setCustomerAddress(e.target.value)} placeholder="ที่อยู่จัดส่ง" className="w-full p-3 bg-white border rounded-xl font-bold h-20 text-xs resize-none outline-none" />
-                <select value={shippingCarrier} onChange={e=>setShippingCarrier(e.target.value as any)} className="w-full p-3 bg-white border rounded-xl font-bold text-xs outline-none"><option value="None">รับเองหน้าร้าน</option><option value="Anuchit">Anuchit</option><option value="Meexai">Meexai</option><option value="Rungarun">Rungarun</option></select>
-                <select value={paymentMethod} onChange={e=>setPaymentMethod(e.target.value as any)} className="w-full p-3 bg-white border rounded-xl font-bold text-xs outline-none"><option value="Transfer">โอนเงิน</option><option value="COD">เก็บเงินปลายทาง</option></select>
+                <div className="grid grid-cols-2 gap-2">
+                    <select value={shippingCarrier} onChange={e=>setShippingCarrier(e.target.value as any)} className="w-full p-3 bg-white border rounded-xl font-bold text-[10px] outline-none"><option value="None">รับเองหน้าร้าน</option><option value="Anuchit">Anuchit</option><option value="Meexai">Meexai</option><option value="Rungarun">Rungarun</option></select>
+                    <select value={paymentMethod} onChange={e=>setPaymentMethod(e.target.value as any)} className="w-full p-3 bg-white border rounded-xl font-bold text-[10px] outline-none"><option value="Transfer">โอนเงิน</option><option value="COD">เก็บเงินปลายทาง</option></select>
+                </div>
             </div>
-            <div className="flex-1 overflow-y-auto space-y-2 mb-4">
+            <div className="flex-1 overflow-y-auto space-y-2 mb-4 mt-4">
                 {billItems.map((it:any) => (
                   <div key={it.id} className="flex items-center gap-3 p-2 bg-white rounded-xl border">
                       <div className="w-10 h-10 rounded-lg overflow-hidden flex-shrink-0">{it.imageUrl ? <img src={it.imageUrl} className="w-full h-full object-cover" /> : <div className={`w-full h-full ${it.color} text-white flex items-center justify-center text-[10px] font-black`}>{it.name.charAt(0)}</div>}</div>
                       <div className="flex-1 min-w-0"><div className="text-[10px] font-black truncate">{it.name}</div><div className="text-[9px] font-bold text-sky-600">{formatMoney(it.price)}</div></div>
-                      <div className="flex items-center gap-1 bg-slate-50 p-1 rounded-lg"><button onClick={()=>updateCartQuantity(it.id, it.quantity - 1)} className="p-1"><Minus size={14}/></button><span className="w-6 text-center text-xs font-black">{it.quantity}</span><button onClick={()=>updateCartQuantity(it.id, it.quantity + 1)} className="p-1"><Plus size={14}/></button></div>
+                      
+                      {/* Editable Quantity Section */}
+                      <div className="flex items-center gap-1 bg-slate-50 p-1 rounded-lg">
+                        <button onClick={()=>updateCartQuantity(it.id, it.quantity - 1)} className="p-1 text-slate-400 hover:text-sky-600 transition-colors"><Minus size={14}/></button>
+                        <input 
+                          type="number" 
+                          min="1"
+                          value={it.quantity}
+                          onChange={(e) => updateCartQuantity(it.id, parseInt(e.target.value))}
+                          className="w-12 text-center text-xs font-black bg-transparent outline-none focus:text-sky-600"
+                        />
+                        <button onClick={()=>updateCartQuantity(it.id, it.quantity + 1)} className="p-1 text-slate-400 hover:text-sky-600 transition-colors"><Plus size={14}/></button>
+                      </div>
+
                       <button onClick={()=>setBillItems((p:any)=>p.filter((x:any)=>x.id!==it.id))} className="p-1.5 text-rose-300 hover:text-rose-600"><Trash2 size={16}/></button>
                   </div>
                 ))}
             </div>
-            <div className="mt-auto bg-white p-6 rounded-[2rem] border-t">
-                <div className="flex justify-between items-center mb-4"><div><span className="text-[10px] font-black text-slate-400 uppercase">ยอดรวมสุทธิ</span><p className="text-3xl font-black text-sky-600">{formatMoney(cartTotal)}</p></div></div>
-                <button disabled={billItems.length === 0} onClick={handleCheckout} className="w-full py-5 bg-sky-600 disabled:bg-slate-200 text-white rounded-2xl font-black text-xl shadow-xl flex items-center justify-center gap-3"><CheckCircle2 size={24}/> {isEditing ? 'บันทึกการแก้ไข' : 'ยืนยันการสั่งซื้อ'}</button>
+            <div className="mt-auto bg-white p-4 md:p-6 rounded-[2rem] border-t shadow-sm">
+                <div className="flex justify-between items-center mb-4"><div><span className="text-[10px] font-black text-slate-400 uppercase">ยอดรวมสุทธิ</span><p className="text-xl md:text-3xl font-black text-sky-600">{formatMoney(cartTotal)}</p></div></div>
+                <button disabled={billItems.length === 0} onClick={handleCheckout} className="w-full py-4 md:py-5 bg-sky-600 disabled:bg-slate-200 text-white rounded-2xl font-black text-base md:text-xl shadow-xl flex items-center justify-center gap-3 transition-all active:scale-[0.98]"><CheckCircle2 size={24}/> {isEditing ? 'บันทึกการแก้ไข' : 'ยืนยันการสั่งซื้อ'}</button>
             </div>
           </div>
       </div>
