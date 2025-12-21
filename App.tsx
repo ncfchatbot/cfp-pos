@@ -131,6 +131,68 @@ const App: React.FC = () => {
     }
   };
 
+  // Logic: Clear Functions
+  const handleClearSales = async () => {
+    if (!confirm(t.confirm_clear)) return;
+    try {
+      for (const sale of recentSales) {
+        await deleteDoc(doc(db, 'sales', sale.id));
+      }
+      alert("ล้างประวัติการขายสำเร็จ!");
+    } catch (err: any) { alert("Error: " + err.message); }
+  };
+
+  const handleClearStock = async () => {
+    if (!confirm(t.confirm_clear)) return;
+    try {
+      for (const p of products) {
+        await deleteDoc(doc(db, 'products', p.id));
+      }
+      alert("ล้างคลังสินค้าสำเร็จ!");
+    } catch (err: any) { alert("Error: " + err.message); }
+  };
+
+  const handleFullBackup = () => {
+    const data = { products, sales: recentSales, promotions, store: storeProfile };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `FullBackup_${new Date().toISOString().slice(0,10)}.json`;
+    link.click();
+  };
+
+  const downloadSkuTemplate = () => {
+    const headers = ["Code", "Name", "Price", "Cost", "Stock", "Category"];
+    const csvContent = "\ufeff" + headers.join(",") + "\nCF001,Example Item,25000,15000,100,Coffee";
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = `SKU_Template.csv`;
+    link.click();
+  };
+
+  const handleBulkImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async (ev) => {
+      const content = ev.target?.result as string;
+      const lines = content.split('\n').filter(l => l.trim());
+      if (lines.length <= 1) return;
+      try {
+        for (let i = 1; i < lines.length; i++) {
+          const cols = lines[i].split(',').map(c => c.trim().replace(/^"|"$/g, ''));
+          if (cols.length < 5) continue;
+          const [code, name, price, cost, stock, category] = cols;
+          const id = products.find(p => p.code === code)?.id || uuidv4();
+          await setDoc(doc(db, 'products', id), { id, code, name, price: Number(price), cost: Number(cost), stock: Number(stock), category: category || "General", color: "bg-sky-500" });
+        }
+        alert("นำเข้าข้อมูลสำเร็จ!");
+      } catch (err: any) { alert("Import Error: " + err.message); }
+    };
+    reader.readAsText(file);
+  };
+
   const handleOpenNewBill = () => {
     setEditingBill(null); setBillItems([]); setCustomerName(''); setCustomerPhone(''); setCustomerAddress('');
     setShippingCarrier('None'); setPaymentMethod('Transfer'); setPaymentStatus('Paid');
@@ -242,7 +304,6 @@ const App: React.FC = () => {
 
         <div className="flex-1 overflow-y-auto p-3 md:p-10 custom-scrollbar">
           <div className="max-w-7xl mx-auto space-y-8 pb-20">
-            {/* --- RENDER MODES WITH SAFETY LOCK --- */}
             {mode === AppMode.DASHBOARD && (
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-6 animate-in fade-in">
                  {[
@@ -266,7 +327,10 @@ const App: React.FC = () => {
               <div className="space-y-4 animate-in slide-in-from-bottom-5">
                  <div className="flex justify-between items-center">
                     <h2 className="text-lg md:text-2xl font-black text-slate-800 flex items-center gap-2"><ClipboardList className="text-sky-500" size={24}/> {t.menu_orders}</h2>
-                    <button onClick={handleOpenNewBill} className="bg-sky-600 text-white px-6 py-3 rounded-xl font-black hover:bg-sky-700 shadow-lg flex items-center gap-2 transition-all active:scale-95"><Plus size={20}/> {t.order_create_bill}</button>
+                    <div className="flex gap-2">
+                      <button onClick={handleClearSales} className="p-3 bg-rose-50 text-rose-600 rounded-xl font-black hover:bg-rose-100 flex items-center gap-2 transition-all active:scale-95"><RotateCcw size={16}/> {t.clear_sales}</button>
+                      <button onClick={handleOpenNewBill} className="bg-sky-600 text-white px-6 py-3 rounded-xl font-black hover:bg-sky-700 shadow-lg flex items-center gap-2 transition-all active:scale-95"><Plus size={20}/> {t.order_create_bill}</button>
+                    </div>
                  </div>
                  <div className="bg-white rounded-[2rem] border overflow-hidden shadow-sm">
                    <div className="overflow-x-auto">
@@ -296,11 +360,19 @@ const App: React.FC = () => {
 
             {mode === AppMode.STOCK && (
               <div className="space-y-4 animate-in slide-in-from-bottom-5">
-                 <div className="flex justify-between items-center">
+                 <div className="flex flex-wrap justify-between items-center gap-4">
                     <h2 className="text-lg md:text-2xl font-black text-slate-800 flex items-center gap-2"><Package className="text-sky-500" size={24}/> {t.stock_title}</h2>
-                    <button onClick={()=>{setEditingProduct(null); setIsProductModalOpen(true);}} className="bg-sky-600 text-white px-6 py-3 rounded-xl font-black hover:bg-sky-700 active:scale-95 shadow-lg">
-                       {t.stock_add}
-                    </button>
+                    <div className="flex flex-wrap gap-2">
+                       <button onClick={handleClearStock} className="p-3 bg-rose-50 text-rose-600 rounded-xl font-black hover:bg-rose-100 flex items-center gap-2 transition-all active:scale-95"><RotateCcw size={16}/> {t.clear_stock}</button>
+                       <button onClick={downloadSkuTemplate} className="p-3 bg-white border border-slate-200 text-slate-600 rounded-xl font-bold hover:bg-slate-50 flex items-center gap-2 transition-all"><FileDown size={16}/> {t.stock_download_template}</button>
+                       <label className="p-3 bg-white border border-slate-200 text-slate-600 rounded-xl font-bold hover:bg-slate-50 flex items-center gap-2 cursor-pointer">
+                          <FileUp size={16}/> {t.stock_import_csv}
+                          <input type="file" accept=".csv" className="hidden" onChange={handleBulkImport} />
+                       </label>
+                       <button onClick={()=>{setEditingProduct(null); setIsProductModalOpen(true);}} className="bg-sky-600 text-white px-6 py-3 rounded-xl font-black hover:bg-sky-700 active:scale-95 shadow-lg">
+                          {t.stock_add}
+                       </button>
+                    </div>
                  </div>
                  <div className="bg-white rounded-[2rem] border overflow-hidden shadow-sm">
                    <div className="overflow-x-auto">
@@ -330,7 +402,6 @@ const App: React.FC = () => {
               </div>
             )}
 
-            {/* --- FIX: ADDED MISSING MODES --- */}
             {mode === AppMode.PROMOTIONS && (
               <PromotionView 
                 promotions={promotions} 
@@ -379,6 +450,16 @@ const App: React.FC = () => {
                   </div>
                   <button onClick={()=>{ alert('บันทึกสำเร็จ!'); }} className="w-full py-4 bg-sky-600 text-white rounded-xl font-black shadow-lg hover:bg-sky-700 flex items-center justify-center gap-2 active:scale-95"><Save size={18}/> บันทึกข้อมูล</button>
                 </Card>
+
+                <div className="mt-8">
+                  <h3 className="text-lg font-black text-slate-800 mb-4 flex items-center gap-2"><Database className="text-sky-500" size={20}/> {t.data_management}</h3>
+                  <Card className="border-emerald-50 shadow-sm space-y-4">
+                    <button onClick={handleFullBackup} className="w-full py-4 bg-emerald-50 text-emerald-600 rounded-xl font-black border border-emerald-100 hover:bg-emerald-100 transition-all flex items-center justify-center gap-3 active:scale-[0.98]">
+                      <Download size={18}/> {t.backup_all}
+                    </button>
+                    <p className="text-[10px] text-slate-400 font-bold text-center italic">*{t.backup_reminder}</p>
+                  </Card>
+                </div>
               </div>
             )}
           </div>
@@ -398,7 +479,7 @@ const App: React.FC = () => {
   );
 };
 
-// --- SUB-COMPONENTS FOR CLEANER CODE ---
+// --- SUB-COMPONENTS ---
 
 const PromotionView = ({ promotions, products, setEditingPromo, setPromoSkusInput, setIsPromoModalOpen, formatMoney, db }: any) => (
   <div className="space-y-6 animate-in slide-in-from-bottom-5">
@@ -425,9 +506,6 @@ const PromotionView = ({ promotions, products, setEditingPromo, setPromoSkusInpu
           </div>
         </Card>
       ))}
-      {promotions.length === 0 && (
-        <div className="col-span-full py-20 flex flex-col items-center opacity-20"><Tag size={64} className="mb-4"/><p className="font-black uppercase tracking-widest">ยังไม่มีโปรโมชั่น</p></div>
-      )}
     </div>
   </div>
 );
@@ -478,7 +556,7 @@ const BillModal = ({ isOpen, setNewBillTab, newBillTab, billItems, setBillItems,
                 {products.filter((p:any) => !skuSearch || p.name.includes(skuSearch) || p.code.includes(skuSearch)).map((p:any) => (
                   <button key={p.id} onClick={() => addToCart(p, batchQty)} className="bg-white p-4 rounded-[2.5rem] border-2 border-slate-100 shadow-sm hover:border-sky-500 hover:shadow-xl transition-all text-left group active:scale-95 relative">
                       <div className="w-full aspect-square rounded-[2rem] bg-slate-50 mb-3 overflow-hidden border">
-                        {p.imageUrl ? <img src={p.imageUrl} className="w-full h-full object-cover transition-transform group-hover:scale-110" /> : <div className={`w-full h-full ${p.color} flex items-center justify-center text-4xl font-black text-white`}>{p.name.charAt(0)}</div>}
+                        {p.imageUrl ? <img src={p.imageUrl} className="w-full h-full object-cover" /> : <div className={`w-full h-full ${p.color} flex items-center justify-center text-4xl font-black text-white`}>{p.name.charAt(0)}</div>}
                         <div className="absolute top-2 right-2 bg-black/70 text-white text-[9px] px-2 py-1 rounded-lg font-black backdrop-blur-md">สต็อก: {p.stock}</div>
                       </div>
                       <h4 className="font-black text-slate-800 text-xs truncate mb-1">{p.name}</h4>
@@ -499,6 +577,7 @@ const BillModal = ({ isOpen, setNewBillTab, newBillTab, billItems, setBillItems,
                 </div>
             </div>
             <div className="flex-1 overflow-y-auto space-y-2 mb-4 mt-2 pr-1 custom-scrollbar">
+                {billItems.length > 0 && <div className="text-right mb-2"><button onClick={()=>setBillItems([])} className="text-[9px] font-bold text-rose-400 hover:text-rose-600">ล้างตะกร้า</button></div>}
                 {billItems.map((it:any) => (
                   <div key={it.id} className="flex items-center gap-3 p-3 bg-white rounded-2xl border-2 border-slate-100 shadow-sm animate-in slide-in-from-right-2">
                       <div className="w-12 h-12 rounded-xl overflow-hidden border flex-shrink-0">{it.imageUrl ? <img src={it.imageUrl} className="w-full h-full object-cover" /> : <div className={`w-full h-full ${it.color} text-white flex items-center justify-center text-xs font-black`}>{it.name.charAt(0)}</div>}</div>
