@@ -26,6 +26,10 @@ export const translations: Record<Language, any> = {
     payment_transfer: 'ໂອນເງິນ',
     payment_cod: 'ເກັບເງິນປາຍທາງ (COD)',
     report_export_raw: 'ດາວໂຫລດ Raw Data',
+    report_order_status: 'ສະຖານະການເກັບເງິນ ແລະ ຈັດສົ່ງ',
+    report_product_sales: 'ຍອດຂາຍແຍກຕາມສິນຄ້າ',
+    report_start_date: 'ວັນທີເລີ່ມຕົ້ນ',
+    report_end_date: 'ວັນທີສິ້ນສຸດ',
     stock_add: 'ເພີ່ມສິນຄ້າໃໝ່',
     stock_image_upload: 'ອັບໂຫຼດຮູບຈາກເຄື່ອງ',
     stock_download_template: 'ດາວໂຫລດ Template',
@@ -45,7 +49,11 @@ export const translations: Record<Language, any> = {
     ship_none: 'ຮັບເອງໜ້າຮ້ານ',
     ship_anuchit: 'Anuchit (ອານຸສິດ)',
     ship_meexai: 'Meexai (ມີໄຊ)',
-    ship_rungarun: 'Rungarun (ຮຸ່ງອາລຸນ)'
+    ship_rungarun: 'Rungarun (ຮຸ່ງອາລຸນ)',
+    status_paid: 'ຊຳລະແລ້ວ',
+    status_unpaid: 'ຄ້າງຊຳລະ',
+    status_shipped: 'ສົ່ງແລ້ວ',
+    status_pending: 'ລໍຖ້າສົ່ງ'
   },
   th: {
     menu_dashboard: 'ภาพรวม (Dashboard)',
@@ -71,6 +79,10 @@ export const translations: Record<Language, any> = {
     payment_transfer: 'โอนเงิน',
     payment_cod: 'เก็บเงินปลายทาง (COD)',
     report_export_raw: 'ดาวน์โหลด Raw Data',
+    report_order_status: 'รายงานสถานะการเก็บเงินและจัดส่ง',
+    report_product_sales: 'รายงานยอดขายรายสินค้า',
+    report_start_date: 'วันที่เริ่มต้น',
+    report_end_date: 'วันที่สิ้นสุด',
     stock_add: 'เพิ่มสินค้าใหม่',
     stock_image_upload: 'อัปโหลดรูปภาพ',
     stock_download_template: 'ดาวน์โหลด Template',
@@ -90,7 +102,11 @@ export const translations: Record<Language, any> = {
     ship_none: 'รับเองหน้าร้าน',
     ship_anuchit: 'Anuchit (อนุสิต)',
     ship_meexai: 'Meexai (มีไซ)',
-    ship_rungarun: 'Rungarun (รุ่งอรุณ)'
+    ship_rungarun: 'Rungarun (รุ่งอรุณ)',
+    status_paid: 'เก็บเงินแล้ว',
+    status_unpaid: 'ค้างจ่าย',
+    status_shipped: 'จัดส่งแล้ว',
+    status_pending: 'รอจัดส่ง'
   },
   en: {
     menu_dashboard: 'Dashboard',
@@ -115,6 +131,10 @@ export const translations: Record<Language, any> = {
     payment_transfer: 'Transfer',
     payment_cod: 'COD',
     report_export_raw: 'Download Raw Data',
+    report_order_status: 'Order & Payment Status',
+    report_product_sales: 'Product Sales Report',
+    report_start_date: 'Start Date',
+    report_end_date: 'End Date',
     stock_add: 'Add Product',
     stock_image_upload: 'Upload Image',
     stock_download_template: 'Download Template',
@@ -134,6 +154,10 @@ export const translations: Record<Language, any> = {
     ship_none: 'Pick up at store',
     ship_anuchit: 'Anuchit',
     ship_meexai: 'Meexai',
-    ship_rungarun: 'Rungarun'
+    ship_rungarun: 'Rungarun',
+    status_paid: 'Paid',
+    status_unpaid: 'Unpaid',
+    status_shipped: 'Shipped',
+    status_pending: 'Pending'
   }
 };

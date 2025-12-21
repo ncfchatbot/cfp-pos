@@ -4,7 +4,7 @@ import {
   Plus, Minus, Trash2, Edit, LayoutDashboard, Settings, 
   Package, ClipboardList, BarChart3, Tag, X, Search,
   ShoppingCart, Coffee, TrendingUp, CheckCircle2, Save, Send, Bot, 
-  User, Download, Upload, AlertCircle, FileText, Smartphone, Truck, CreditCard, Building2, MapPin, Image as ImageIcon, FileUp, FileDown, ShieldAlert, Wifi, WifiOff, DollarSign, PieChart, ArrowRight, BarChart2, Users, ChevronRight, List, Phone, Printer, Database, RotateCcw, Filter
+  User, Download, Upload, AlertCircle, FileText, Smartphone, Truck, CreditCard, Building2, MapPin, Image as ImageIcon, FileUp, FileDown, ShieldAlert, Wifi, WifiOff, DollarSign, PieChart, ArrowRight, BarChart2, Users, ChevronRight, List, Phone, Printer, Database, RotateCcw, Filter, Calendar
 } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import { AppMode, Product, CartItem, SaleRecord, StoreProfile, Language, Promotion, PromoTier, Role, Message, LogisticsProvider, OrderStatus, PaymentMethod } from './types';
@@ -144,7 +144,7 @@ const App: React.FC = () => {
       for (const sale of recentSales) {
         await deleteDoc(doc(db, 'sales', sale.id));
       }
-      alert("ล้างประวัติการขายสำเร็จ!");
+      alert("ລ້າງປະຫວັດການຂາຍສຳເລັດ!");
     } catch (err: any) { alert("Error: " + err.message); }
   };
 
@@ -154,7 +154,7 @@ const App: React.FC = () => {
       for (const p of products) {
         await deleteDoc(doc(db, 'products', p.id));
       }
-      alert("ล้างคลังสินค้าสำเร็จ!");
+      alert("ລ້າງສາງສິນຄ້າສຳເລັດ!");
     } catch (err: any) { alert("Error: " + err.message); }
   };
 
@@ -193,7 +193,7 @@ const App: React.FC = () => {
           const id = products.find(p => p.code === code)?.id || uuidv4();
           await setDoc(doc(db, 'products', id), { id, code, name, price: Number(price), cost: Number(cost), stock: Number(stock), category: category || "General", color: "bg-sky-500" });
         }
-        alert("นำเข้าข้อมูลสำเร็จ!");
+        alert("ນຳເຂົ້າຂໍ້ມູນສຳເລັດ!");
       } catch (err: any) { alert("Import Error: " + err.message); }
     };
     reader.readAsText(file);
@@ -213,7 +213,7 @@ const App: React.FC = () => {
   };
 
   const handleCheckout = async () => {
-    if (billItems.length === 0) { alert("กรุณาเลือกสินค้าก่อนเช็คบิล"); return; }
+    if (billItems.length === 0) { alert("ກະລຸນາເລືອກສິນຄ້າກ່ອນເຊັກບິນ"); return; }
     const total = billItems.reduce((s, i) => s + (Number(i.price || 0) * i.quantity), 0);
     const orderId = editingBill ? editingBill.id : uuidv4();
     const order: SaleRecord = {
@@ -230,7 +230,7 @@ const App: React.FC = () => {
           if (p) await setDoc(doc(db, 'products', p.id), { ...p, stock: Math.max(0, (Number(p.stock) || 0) - item.quantity) });
         }
       }
-      setIsBillModalOpen(false); setBillItems([]); alert("บันทึกบิลสำเร็จ!");
+      setIsBillModalOpen(false); setBillItems([]); alert("ບັນທຶກບິນສຳເລັດ!");
     } catch (err: any) { alert("Error: " + err.message); }
   };
 
@@ -262,7 +262,7 @@ const App: React.FC = () => {
         }
       }
     } catch (error) {
-      setMessages(prev => prev.map(m => m.id === modelMsgId ? { ...m, text: "ขออภัย เกิดข้อผิดพลาด", isError: true } : m));
+      setMessages(prev => prev.map(m => m.id === modelMsgId ? { ...m, text: "ຂໍອະໄພ ເກີດຂໍ້ຜິດພາດ", isError: true } : m));
     } finally { setIsTyping(false); }
   };
 
@@ -271,7 +271,7 @@ const App: React.FC = () => {
     const validSales = recentSales.filter(s => s.status !== 'Cancelled');
     let totalRevenue = 0;
     let totalCostOfGoodsSold = 0;
-    const productMap: Record<string, {name: string, qty: number, color: string}> = {};
+    const productMap: Record<string, {name: string, qty: number, color: string, totalRevenue: number}> = {};
     const customerMap: Record<string, {name: string, total: number, phone: string}> = {};
     const monthlyData: Record<string, number> = {};
 
@@ -280,9 +280,10 @@ const App: React.FC = () => {
       s.items.forEach(item => {
         totalCostOfGoodsSold += (Number(item.cost || 0) * item.quantity);
         if (!productMap[item.id]) {
-          productMap[item.id] = { name: item.name, qty: 0, color: item.color || "bg-sky-500" };
+          productMap[item.id] = { name: item.name, qty: 0, color: item.color || "bg-sky-500", totalRevenue: 0 };
         }
         productMap[item.id].qty += item.quantity;
+        productMap[item.id].totalRevenue += (item.price * item.quantity);
       });
 
       const cKey = s.customerPhone || s.customerName || 'Walk-in';
@@ -304,7 +305,7 @@ const App: React.FC = () => {
     const topProducts = Object.values(productMap).sort((a,b) => b.qty - a.qty).slice(0, 10);
     const topCustomers = Object.values(customerMap).sort((a,b) => b.total - a.total).slice(0, 10);
 
-    return { totalRevenue, grossProfit, stockValue, topProducts, topCustomers, monthlyData, validSalesCount: validSales.length };
+    return { totalRevenue, grossProfit, stockValue, topProducts, topCustomers, monthlyData, validSalesCount: validSales.length, productsSales: Object.values(productMap) };
   }, [recentSales, products]);
 
   const filteredAndSortedProducts = useMemo(() => {
@@ -370,10 +371,10 @@ const App: React.FC = () => {
                                  <div className={`w-8 h-8 rounded-lg ${p.color} text-white flex items-center justify-center font-black text-[10px]`}>{i+1}</div>
                                  <span className="font-bold text-xs truncate max-w-[150px]">{p.name}</span>
                               </div>
-                              <span className="font-black text-sky-600 text-xs">{p.qty} ชิ้น</span>
+                              <span className="font-black text-sky-600 text-xs">{p.qty} ชິ້ນ</span>
                            </div>
                          ))}
-                         {reportStats.topProducts.length === 0 && <p className="text-center text-slate-300 py-10 font-bold text-xs uppercase tracking-widest">ยังไม่มีข้อมูล</p>}
+                         {reportStats.topProducts.length === 0 && <p className="text-center text-slate-300 py-10 font-bold text-xs uppercase tracking-widest">ຍັງບໍ່ມີຂໍ້ມູນ</p>}
                       </div>
                    </Card>
 
@@ -392,7 +393,7 @@ const App: React.FC = () => {
                               <span className="font-black text-purple-600 text-xs">{formatMoney(c.total)}</span>
                            </div>
                          ))}
-                         {reportStats.topCustomers.length === 0 && <p className="text-center text-slate-300 py-10 font-bold text-xs uppercase tracking-widest">ยังไม่มีข้อมูล</p>}
+                         {reportStats.topCustomers.length === 0 && <p className="text-center text-slate-300 py-10 font-bold text-xs uppercase tracking-widest">ຍັງບໍ່ມີຂໍ້ມູນ</p>}
                       </div>
                    </Card>
                 </div>
@@ -504,7 +505,7 @@ const App: React.FC = () => {
               />
             )}
 
-            {mode === AppMode.REPORTS && <ReportsView reportStats={reportStats} formatMoney={formatMoney} />}
+            {mode === AppMode.REPORTS && <ReportsView recentSales={recentSales} formatMoney={formatMoney} t={t} />}
 
             {mode === AppMode.AI && (
                <div className="flex flex-col h-[calc(100vh-250px)] animate-in fade-in">
@@ -513,7 +514,7 @@ const App: React.FC = () => {
                     <div ref={chatEndRef} />
                   </div>
                   <div className="p-4 bg-white border-t rounded-b-[2rem] flex gap-2">
-                    <input value={chatInput} onChange={e => setChatInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleSendMessage()} placeholder="พิมพ์คำถามที่นี่..." className="flex-1 p-4 bg-slate-100 rounded-xl font-bold outline-none focus:bg-white focus:ring-2 focus:ring-sky-500" />
+                    <input value={chatInput} onChange={e => setChatInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleSendMessage()} placeholder="ພິມຄຳຖາມທີ່ນີ້..." className="flex-1 p-4 bg-slate-100 rounded-xl font-bold outline-none focus:bg-white focus:ring-2 focus:ring-sky-500" />
                     <button onClick={handleSendMessage} disabled={!chatInput.trim() || isTyping} className="p-4 bg-sky-600 text-white rounded-xl hover:bg-sky-700 transition-all shadow-lg active:scale-95"><Send size={20}/></button>
                   </div>
                </div>
@@ -522,7 +523,7 @@ const App: React.FC = () => {
             {mode === AppMode.SETTINGS && (
               <div className="max-w-2xl mx-auto space-y-6 animate-in fade-in">
                 <Card className="space-y-6 shadow-xl border-sky-50">
-                  <h3 className="text-xl font-black text-slate-800 flex items-center gap-2"><Settings className="text-sky-500" size={24}/> ตั้งค่าร้านค้า</h3>
+                  <h3 className="text-xl font-black text-slate-800 flex items-center gap-2"><Settings className="text-sky-500" size={24}/> ຕັ້ງຄ່າຮ້ານຄ້າ</h3>
                   <div className="flex justify-center mb-6">
                       <div className="relative group">
                         <div className="w-32 h-32 rounded-[2.5rem] bg-slate-50 border-4 border-white shadow-xl overflow-hidden flex items-center justify-center">
@@ -534,11 +535,11 @@ const App: React.FC = () => {
                       </div>
                   </div>
                   <div className="space-y-4">
-                    <input value={storeProfile.name} onChange={e=>setStoreProfile({...storeProfile, name: e.target.value})} placeholder="ชื่อร้านค้า" className="w-full p-4 bg-slate-50 border rounded-xl font-bold outline-none text-sm focus:border-sky-500" />
-                    <input value={storeProfile.phone} onChange={e=>setStoreProfile({...storeProfile, phone: e.target.value})} placeholder="เบอร์โทรศัพท์" className="w-full p-4 bg-slate-50 border rounded-xl font-bold outline-none text-sm focus:border-sky-500" />
-                    <textarea value={storeProfile.address} onChange={e=>setStoreProfile({...storeProfile, address: e.target.value})} placeholder="ที่อยู่ร้าน" className="w-full p-4 bg-slate-50 border rounded-xl font-bold outline-none text-sm h-24 focus:border-sky-500" />
+                    <input value={storeProfile.name} onChange={e=>setStoreProfile({...storeProfile, name: e.target.value})} placeholder="ຊື່ຮ້ານຄ້າ" className="w-full p-4 bg-slate-50 border rounded-xl font-bold outline-none text-sm focus:border-sky-500" />
+                    <input value={storeProfile.phone} onChange={e=>setStoreProfile({...storeProfile, phone: e.target.value})} placeholder="ເບີໂທລະສັບ" className="w-full p-4 bg-slate-50 border rounded-xl font-bold outline-none text-sm focus:border-sky-500" />
+                    <textarea value={storeProfile.address} onChange={e=>setStoreProfile({...storeProfile, address: e.target.value})} placeholder="ທີ່ຢູ່ຮ້ານ" className="w-full p-4 bg-slate-50 border rounded-xl font-bold outline-none text-sm h-24 focus:border-sky-500" />
                   </div>
-                  <button onClick={()=>{ alert('บันทึกสำเร็จ!'); }} className="w-full py-4 bg-sky-600 text-white rounded-xl font-black shadow-lg hover:bg-sky-700 flex items-center justify-center gap-2 active:scale-95"><Save size={18}/> บันทึกข้อมูล</button>
+                  <button onClick={()=>{ alert('ບັນທຶກສຳເລັດ!'); }} className="w-full py-4 bg-sky-600 text-white rounded-xl font-black shadow-lg hover:bg-sky-700 flex items-center justify-center gap-2 active:scale-95"><Save size={18}/> ບັນທຶກຂໍ້ມູນ</button>
                 </Card>
 
                 <div className="mt-8">
@@ -574,8 +575,8 @@ const App: React.FC = () => {
 const PromotionView = ({ promotions, products, setEditingPromo, setPromoSkusInput, setIsPromoModalOpen, formatMoney, db }: any) => (
   <div className="space-y-6 animate-in slide-in-from-bottom-5">
     <div className="flex justify-between items-center">
-      <h2 className="text-lg md:text-2xl font-black text-slate-800 flex items-center gap-2"><Tag className="text-sky-500" size={24}/> โปรโมชั่น</h2>
-      <button onClick={()=>{setEditingPromo(null); setPromoSkusInput(''); setIsPromoModalOpen(true);}} className="bg-sky-600 text-white px-6 py-3 rounded-xl font-black hover:bg-sky-700 shadow-lg transition-all active:scale-95">เพิ่มโปรโมชั่นใหม่</button>
+      <h2 className="text-lg md:text-2xl font-black text-slate-800 flex items-center gap-2"><Tag className="text-sky-500" size={24}/> ໂປຣໂມຊັ່ນ</h2>
+      <button onClick={()=>{setEditingPromo(null); setPromoSkusInput(''); setIsPromoModalOpen(true);}} className="bg-sky-600 text-white px-6 py-3 rounded-xl font-black hover:bg-sky-700 shadow-lg transition-all active:scale-95">ເພີ່ມໂປຣໂມຊັ່ນໃໝ່</button>
     </div>
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
       {promotions.map((promo: any) => (
@@ -584,13 +585,13 @@ const PromotionView = ({ promotions, products, setEditingPromo, setPromoSkusInpu
               <h4 className="font-black text-slate-800 text-lg">{promo.name}</h4>
               <div className="flex gap-2">
                 <button onClick={()=>{ setEditingPromo(promo); setPromoSkusInput(products.filter((p:any) => promo.targetProductIds.includes(p.id)).map((p:any) => p.code).join(', ')); setIsPromoModalOpen(true); }} className="p-2 text-slate-300 hover:text-sky-600"><Edit size={16}/></button>
-                <button onClick={async ()=>{ if(confirm('ลบ?')) await deleteDoc(doc(db, 'promotions', promo.id)); }} className="p-2 text-slate-300 hover:text-rose-600"><Trash2 size={16}/></button>
+                <button onClick={async ()=>{ if(confirm('ລົບ?')) await deleteDoc(doc(db, 'promotions', promo.id)); }} className="p-2 text-slate-300 hover:text-rose-600"><Trash2 size={16}/></button>
               </div>
           </div>
           <div className="space-y-2">
               {promo.tiers.map((tier: any, i: number) => (
                 <div key={i} className="flex justify-between text-xs font-bold bg-slate-50 p-2 rounded-lg border border-slate-100">
-                  <span>{tier.minQty}+ ชັ້ນ</span><span className="text-sky-600">{formatMoney(tier.unitPrice)}</span>
+                  <span>{tier.minQty}+ ຊັ້ນ</span><span className="text-sky-600">{formatMoney(tier.unitPrice)}</span>
                 </div>
               ))}
           </div>
@@ -600,31 +601,120 @@ const PromotionView = ({ promotions, products, setEditingPromo, setPromoSkusInpu
   </div>
 );
 
-const ReportsView = ({ reportStats, formatMoney }: any) => (
-  <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-in fade-in">
-    <Card className="lg:col-span-2 min-h-[400px] flex flex-col">
-       <div className="flex justify-between mb-10"><h3 className="text-xl font-black text-slate-800">Sales Trend</h3><TrendingUp className="text-sky-500"/></div>
-       <div className="flex-1 flex items-end justify-around gap-2">
-          {Object.entries(reportStats.monthlyData as Record<string, number>).map(([month, val]) => (
-             <div key={month} className="flex flex-col items-center flex-1 max-w-[50px] group">
-                <div className="w-full bg-sky-500 rounded-t-xl transition-all hover:bg-sky-600 cursor-help" style={{ height: `${Math.min(200, (val/1000000)*100)}px` }} />
-                <span className="text-[9px] font-black text-slate-400 mt-4 rotate-45 origin-left">{month}</span>
-             </div>
-          ))}
-       </div>
-    </Card>
-    <div className="space-y-6">
-       <Card className="bg-sky-600 text-white h-1/2 flex flex-col justify-between">
-          <p className="text-[10px] font-black uppercase tracking-widest opacity-80">Total Revenue</p>
-          <h3 className="text-3xl font-black">{formatMoney(reportStats.totalRevenue)}</h3>
-       </Card>
-       <Card className="bg-emerald-600 text-white h-1/2 flex flex-col justify-between">
-          <p className="text-[10px] font-black uppercase tracking-widest opacity-80">Stock Value</p>
-          <h3 className="text-3xl font-black">{formatMoney(reportStats.stockValue)}</h3>
-       </Card>
+const ReportsView = ({ recentSales, formatMoney, t }: any) => {
+  const [startDate, setStartDate] = useState(() => {
+    const d = new Date();
+    d.setDate(1);
+    return d.toISOString().split('T')[0];
+  });
+  const [endDate, setEndDate] = useState(() => new Date().toISOString().split('T')[0]);
+
+  const filteredSales = useMemo(() => {
+    const start = new Date(startDate).getTime();
+    const end = new Date(endDate).getTime() + 86400000; // include full end day
+    return recentSales.filter((s: SaleRecord) => s.timestamp >= start && s.timestamp <= end);
+  }, [recentSales, startDate, endDate]);
+
+  const productStats = useMemo(() => {
+    const stats: Record<string, {name: string, qty: number, revenue: number}> = {};
+    filteredSales.forEach((s: SaleRecord) => {
+      if (s.status === 'Cancelled') return;
+      s.items.forEach(item => {
+        if (!stats[item.id]) stats[item.id] = { name: item.name, qty: 0, revenue: 0 };
+        stats[item.id].qty += item.quantity;
+        stats[item.id].revenue += (item.price * item.quantity);
+      });
+    });
+    return Object.values(stats).sort((a,b) => b.revenue - a.revenue);
+  }, [filteredSales]);
+
+  return (
+    <div className="space-y-8 animate-in fade-in">
+      <div className="flex flex-wrap gap-4 items-end bg-white p-6 rounded-3xl border shadow-sm">
+        <div className="flex flex-col gap-1">
+          <label className="text-[10px] font-black uppercase text-slate-400">{t.report_start_date}</label>
+          <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="p-3 bg-slate-50 border rounded-xl font-bold outline-none text-sm" />
+        </div>
+        <div className="flex flex-col gap-1">
+          <label className="text-[10px] font-black uppercase text-slate-400">{t.report_end_date}</label>
+          <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="p-3 bg-slate-50 border rounded-xl font-bold outline-none text-sm" />
+        </div>
+        <div className="ml-auto text-right">
+          <p className="text-[10px] font-black text-slate-400 uppercase">{filteredSales.length} Transactions</p>
+          <p className="text-xl font-black text-sky-600">{formatMoney(filteredSales.reduce((a:number,b:any) => a + (b.status !== 'Cancelled' ? b.total : 0), 0))}</p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-8">
+        {/* Bill Status Table */}
+        <Card className="flex flex-col">
+          <h3 className="text-lg font-black text-slate-800 mb-6 flex items-center gap-2 border-b pb-4">
+            <ClipboardList className="text-sky-500" size={20}/> {t.report_order_status}
+          </h3>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-slate-50 text-[10px] font-black uppercase text-slate-400">
+                <tr>
+                  <th className="px-4 py-3">Bill ID</th>
+                  <th className="px-4 py-3">Customer</th>
+                  <th className="px-4 py-3 text-center">Payment</th>
+                  <th className="px-4 py-3 text-center">Shipping</th>
+                  <th className="px-4 py-3 text-right">Total</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y font-bold">
+                {filteredSales.map((s: any) => (
+                  <tr key={s.id} className="hover:bg-slate-50">
+                    <td className="px-4 py-3 text-slate-400">#{s.id.slice(0,8).toUpperCase()}</td>
+                    <td className="px-4 py-3 text-slate-800">{s.customerName || 'Walk-in'}</td>
+                    <td className="px-4 py-3 text-center">
+                      <span className={`px-2 py-0.5 rounded-lg text-[9px] uppercase ${s.status === 'Paid' ? 'bg-emerald-100 text-emerald-600' : 'bg-rose-100 text-rose-600'}`}>
+                        {s.status === 'Paid' ? t.status_paid : t.status_unpaid}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      <span className={`px-2 py-0.5 rounded-lg text-[9px] uppercase ${['Shipped', 'Completed'].includes(s.status) ? 'bg-sky-100 text-sky-600' : 'bg-amber-100 text-amber-600'}`}>
+                        {['Shipped', 'Completed'].includes(s.status) ? t.status_shipped : t.status_pending}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-right text-slate-900">{formatMoney(s.total)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+
+        {/* Product Sales Table */}
+        <Card className="flex flex-col">
+          <h3 className="text-lg font-black text-slate-800 mb-6 flex items-center gap-2 border-b pb-4">
+            <Package className="text-emerald-500" size={20}/> {t.report_product_sales}
+          </h3>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-slate-50 text-[10px] font-black uppercase text-slate-400">
+                <tr>
+                  <th className="px-4 py-3">Product Name</th>
+                  <th className="px-4 py-3 text-center">Quantity Sold</th>
+                  <th className="px-4 py-3 text-right">Revenue</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y font-bold">
+                {productStats.map((p, idx) => (
+                  <tr key={idx} className="hover:bg-slate-50">
+                    <td className="px-4 py-3 text-slate-800">{p.name}</td>
+                    <td className="px-4 py-3 text-center text-slate-500">{p.qty}</td>
+                    <td className="px-4 py-3 text-right text-emerald-600">{formatMoney(p.revenue)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      </div>
     </div>
-  </div>
-);
+  );
+};
 
 const BillModal = ({ isOpen, setNewBillTab, newBillTab, billItems, setBillItems, products, productCategories, addToCart, updateCartQuantity, customerName, setCustomerName, customerPhone, setCustomerPhone, customerAddress, setCustomerAddress, shippingCarrier, setShippingCarrier, paymentMethod, setPaymentMethod, handleCheckout, formatMoney, cartTotal, skuSearch, setSkuSearch, setIsOpen, isEditing, t }: any) => {
   const [batchQty, setBatchQty] = useState<number>(1);
@@ -650,7 +740,7 @@ const BillModal = ({ isOpen, setNewBillTab, newBillTab, billItems, setBillItems,
             <div className="flex flex-col gap-4 mb-4">
                 <div className="flex flex-col sm:flex-row gap-4">
                   <div className="relative flex-1"><Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300"/><input value={skuSearch} onChange={e=>setSkuSearch(e.target.value)} placeholder={t.search_sku} className="w-full p-4 pl-12 bg-slate-50 border-2 border-transparent focus:border-sky-500 rounded-2xl font-bold outline-none transition-all shadow-inner" /></div>
-                  <div className="flex items-center bg-sky-50 p-1.5 rounded-2xl border-2 border-sky-100 min-w-[200px]"><span className="px-3 text-[10px] font-black text-sky-600 uppercase">จำนวนที่จะสั่ง</span><input type="number" min="1" value={batchQty} onChange={(e) => setBatchQty(Math.max(1, parseInt(e.target.value) || 1))} className="flex-1 bg-white p-3 rounded-xl font-black text-sky-700 outline-none text-right border border-sky-200" /></div>
+                  <div className="flex items-center bg-sky-50 p-1.5 rounded-2xl border-2 border-sky-100 min-w-[200px]"><span className="px-3 text-[10px] font-black text-sky-600 uppercase">ຈຳນວນທີ່ຈະສັ່ງ</span><input type="number" min="1" value={batchQty} onChange={(e) => setBatchQty(Math.max(1, parseInt(e.target.value) || 1))} className="flex-1 bg-white p-3 rounded-xl font-black text-sky-700 outline-none text-right border border-sky-200" /></div>
                 </div>
                 
                 <div className="flex gap-2 overflow-x-auto pb-2 custom-scrollbar no-scrollbar">
