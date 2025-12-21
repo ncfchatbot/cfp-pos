@@ -269,17 +269,42 @@ const App: React.FC = () => {
   // Data Stats
   const reportStats = useMemo(() => {
     const validSales = recentSales.filter(s => s.status !== 'Cancelled');
-    const totalRevenue = validSales.reduce((a, b) => a + Number(b.total || 0), 0);
-    const stockValue = products.reduce((a, b) => a + (Number(b.cost || 0) * Number(b.stock || 0)), 0);
+    let totalRevenue = 0;
+    let totalCostOfGoodsSold = 0;
+    const productMap: Record<string, {name: string, qty: number, color: string}> = {};
+    const customerMap: Record<string, {name: string, total: number, phone: string}> = {};
     const monthlyData: Record<string, number> = {};
+
     validSales.forEach(s => {
+      totalRevenue += Number(s.total || 0);
+      s.items.forEach(item => {
+        totalCostOfGoodsSold += (Number(item.cost || 0) * item.quantity);
+        if (!productMap[item.id]) {
+          productMap[item.id] = { name: item.name, qty: 0, color: item.color || "bg-sky-500" };
+        }
+        productMap[item.id].qty += item.quantity;
+      });
+
+      const cKey = s.customerPhone || s.customerName || 'Walk-in';
+      if (!customerMap[cKey]) {
+        customerMap[cKey] = { name: s.customerName || 'Walk-in', total: 0, phone: s.customerPhone || '' };
+      }
+      customerMap[cKey].total += Number(s.total);
+
       const parts = s.date.split('/');
       if (parts.length >= 3) {
         const monthStr = parts[0] + '/' + parts[2].split(' ')[0];
         monthlyData[monthStr] = (monthlyData[monthStr] || 0) + Number(s.total);
       }
     });
-    return { totalRevenue, stockValue, monthlyData };
+
+    const grossProfit = totalRevenue - totalCostOfGoodsSold;
+    const stockValue = products.reduce((a, b) => a + (Number(b.cost || 0) * Number(b.stock || 0)), 0);
+
+    const topProducts = Object.values(productMap).sort((a,b) => b.qty - a.qty).slice(0, 10);
+    const topCustomers = Object.values(customerMap).sort((a,b) => b.total - a.total).slice(0, 10);
+
+    return { totalRevenue, grossProfit, stockValue, topProducts, topCustomers, monthlyData, validSalesCount: validSales.length };
   }, [recentSales, products]);
 
   const filteredAndSortedProducts = useMemo(() => {
@@ -317,21 +342,60 @@ const App: React.FC = () => {
         <div className="flex-1 overflow-y-auto p-3 md:p-10 custom-scrollbar">
           <div className="max-w-7xl mx-auto space-y-6 pb-20">
             {mode === AppMode.DASHBOARD && (
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-6 animate-in fade-in">
-                 {[
-                   { label: t.dash_sales, val: reportStats.totalRevenue, icon: TrendingUp, color: "sky" },
-                   { label: t.dash_stock_cost, val: reportStats.stockValue, icon: Package, color: "amber" },
-                   { label: t.menu_orders, val: recentSales.length, icon: ClipboardList, color: "purple", unit: "Bills" },
-                   { label: t.dash_low_stock, val: products.filter(p => Number(p.stock) <= 5).length, icon: AlertCircle, color: "rose", unit: "Alert" }
-                 ].map((card, i) => (
-                   <Card key={i} className="group hover:border-sky-500 transition-all flex flex-col justify-between">
-                      <div className="flex justify-between items-start mb-2">
-                        <span className="text-[8px] md:text-[10px] font-black text-slate-400 uppercase tracking-widest">{card.label}</span>
-                        <div className={`p-2 rounded-xl bg-${card.color}-50 text-${card.color}-600`}><card.icon size={16}/></div>
+              <div className="space-y-8 animate-in fade-in">
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-6">
+                   {[
+                     { label: t.dash_sales, val: reportStats.totalRevenue, icon: TrendingUp, color: "sky" },
+                     { label: t.dash_profit, val: reportStats.grossProfit, icon: DollarSign, color: "emerald" },
+                     { label: t.dash_stock_cost, val: reportStats.stockValue, icon: Package, color: "amber" },
+                     { label: t.dash_low_stock, val: products.filter(p => Number(p.stock) <= 5).length, icon: AlertCircle, color: "rose", unit: "Alert" }
+                   ].map((card, i) => (
+                     <Card key={i} className="group hover:border-sky-500 transition-all flex flex-col justify-between">
+                        <div className="flex justify-between items-start mb-2">
+                          <span className="text-[8px] md:text-[10px] font-black text-slate-400 uppercase tracking-widest">{card.label}</span>
+                          <div className={`p-2 rounded-xl bg-${card.color}-50 text-${card.color}-600`}><card.icon size={16}/></div>
+                        </div>
+                        <h3 className="text-sm md:text-2xl font-black text-slate-900">{card.unit ? `${card.val} ${card.unit}` : formatMoney(card.val)}</h3>
+                     </Card>
+                   ))}
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                   <Card className="flex flex-col">
+                      <h3 className="text-sm md:text-lg font-black text-slate-800 mb-6 flex items-center gap-2 border-b pb-4"><Package className="text-sky-500" size={20}/> {t.dash_top_products}</h3>
+                      <div className="space-y-3 flex-1">
+                         {reportStats.topProducts.map((p, i) => (
+                           <div key={i} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl">
+                              <div className="flex items-center gap-3">
+                                 <div className={`w-8 h-8 rounded-lg ${p.color} text-white flex items-center justify-center font-black text-[10px]`}>{i+1}</div>
+                                 <span className="font-bold text-xs truncate max-w-[150px]">{p.name}</span>
+                              </div>
+                              <span className="font-black text-sky-600 text-xs">{p.qty} ชิ้น</span>
+                           </div>
+                         ))}
+                         {reportStats.topProducts.length === 0 && <p className="text-center text-slate-300 py-10 font-bold text-xs uppercase tracking-widest">ยังไม่มีข้อมูล</p>}
                       </div>
-                      <h3 className="text-sm md:text-2xl font-black text-slate-900">{card.unit ? `${card.val} ${card.unit}` : formatMoney(card.val)}</h3>
                    </Card>
-                 ))}
+
+                   <Card className="flex flex-col">
+                      <h3 className="text-sm md:text-lg font-black text-slate-800 mb-6 flex items-center gap-2 border-b pb-4"><Users className="text-purple-500" size={20}/> {t.dash_top_customers}</h3>
+                      <div className="space-y-3 flex-1">
+                         {reportStats.topCustomers.map((c, i) => (
+                           <div key={i} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl">
+                              <div className="flex items-center gap-3">
+                                 <div className={`w-8 h-8 rounded-lg bg-purple-100 text-purple-600 flex items-center justify-center font-black text-[10px]`}>{i+1}</div>
+                                 <div>
+                                    <p className="font-bold text-xs truncate max-w-[120px]">{c.name}</p>
+                                    <p className="text-[9px] text-slate-400 font-bold">{c.phone}</p>
+                                 </div>
+                              </div>
+                              <span className="font-black text-purple-600 text-xs">{formatMoney(c.total)}</span>
+                           </div>
+                         ))}
+                         {reportStats.topCustomers.length === 0 && <p className="text-center text-slate-300 py-10 font-bold text-xs uppercase tracking-widest">ยังไม่มีข้อมูล</p>}
+                      </div>
+                   </Card>
+                </div>
               </div>
             )}
 
@@ -526,7 +590,7 @@ const PromotionView = ({ promotions, products, setEditingPromo, setPromoSkusInpu
           <div className="space-y-2">
               {promo.tiers.map((tier: any, i: number) => (
                 <div key={i} className="flex justify-between text-xs font-bold bg-slate-50 p-2 rounded-lg border border-slate-100">
-                  <span>{tier.minQty}+ ชิ้น</span><span className="text-sky-600">{formatMoney(tier.unitPrice)}</span>
+                  <span>{tier.minQty}+ ชັ້ນ</span><span className="text-sky-600">{formatMoney(tier.unitPrice)}</span>
                 </div>
               ))}
           </div>
@@ -578,18 +642,17 @@ const BillModal = ({ isOpen, setNewBillTab, newBillTab, billItems, setBillItems,
     <div className="fixed inset-0 bg-slate-950/95 z-[500] flex items-center justify-center backdrop-blur-xl animate-in zoom-in-95">
       <div className="bg-white w-full h-full md:max-w-[98vw] md:h-[95vh] md:rounded-[3rem] shadow-2xl flex flex-col md:flex-row overflow-hidden">
           <div className="flex items-center border-b md:hidden bg-white z-20">
-            <button onClick={()=>setNewBillTab('items')} className={`flex-1 py-4 text-xs font-black border-b-2 ${newBillTab === 'items' ? 'border-sky-600 text-sky-600' : 'border-transparent text-slate-400'}`}>1. เลือกสินค้า</button>
-            <button onClick={()=>setNewBillTab('checkout')} className={`flex-1 py-4 text-xs font-black border-b-2 ${newBillTab === 'checkout' ? 'border-sky-600 text-sky-600' : 'border-transparent text-slate-400'}`}>2. ข้อมูลบิล ({billItems.length})</button>
+            <button onClick={()=>setNewBillTab('items')} className={`flex-1 py-4 text-xs font-black border-b-2 ${newBillTab === 'items' ? 'border-sky-600 text-sky-600' : 'border-transparent text-slate-400'}`}>1. {t.menu_stock}</button>
+            <button onClick={()=>setNewBillTab('checkout')} className={`flex-1 py-4 text-xs font-black border-b-2 ${newBillTab === 'checkout' ? 'border-sky-600 text-sky-600' : 'border-transparent text-slate-400'}`}>2. {t.menu_orders} ({billItems.length})</button>
             <button onClick={()=>setIsOpen(false)} className="px-4 text-slate-400"><X size={20}/></button>
           </div>
           <div className={`flex-1 flex flex-col p-4 md:p-8 overflow-hidden bg-white ${newBillTab === 'items' ? 'flex' : 'hidden md:flex'}`}>
             <div className="flex flex-col gap-4 mb-4">
                 <div className="flex flex-col sm:flex-row gap-4">
-                  <div className="relative flex-1"><Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300"/><input value={skuSearch} onChange={e=>setSkuSearch(e.target.value)} placeholder="ค้นหา SKU หรือ ชื่อสินค้า..." className="w-full p-4 pl-12 bg-slate-50 border-2 border-transparent focus:border-sky-500 rounded-2xl font-bold outline-none transition-all shadow-inner" /></div>
+                  <div className="relative flex-1"><Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300"/><input value={skuSearch} onChange={e=>setSkuSearch(e.target.value)} placeholder={t.search_sku} className="w-full p-4 pl-12 bg-slate-50 border-2 border-transparent focus:border-sky-500 rounded-2xl font-bold outline-none transition-all shadow-inner" /></div>
                   <div className="flex items-center bg-sky-50 p-1.5 rounded-2xl border-2 border-sky-100 min-w-[200px]"><span className="px-3 text-[10px] font-black text-sky-600 uppercase">จำนวนที่จะสั่ง</span><input type="number" min="1" value={batchQty} onChange={(e) => setBatchQty(Math.max(1, parseInt(e.target.value) || 1))} className="flex-1 bg-white p-3 rounded-xl font-black text-sky-700 outline-none text-right border border-sky-200" /></div>
                 </div>
                 
-                {/* CATEGORY BAR IN BILL MODAL */}
                 <div className="flex gap-2 overflow-x-auto pb-2 custom-scrollbar no-scrollbar">
                   {productCategories.map((cat: string) => (
                     <button 
@@ -607,7 +670,7 @@ const BillModal = ({ isOpen, setNewBillTab, newBillTab, billItems, setBillItems,
                   <button key={p.id} onClick={() => addToCart(p, batchQty)} className="bg-white p-4 rounded-[2.5rem] border-2 border-slate-100 shadow-sm hover:border-sky-500 hover:shadow-xl transition-all text-left group active:scale-95 relative">
                       <div className="w-full aspect-square rounded-[2rem] bg-slate-50 mb-3 overflow-hidden border">
                         {p.imageUrl ? <img src={p.imageUrl} className="w-full h-full object-cover transition-transform group-hover:scale-110" /> : <div className={`w-full h-full ${p.color} flex items-center justify-center text-4xl font-black text-white`}>{p.name.charAt(0)}</div>}
-                        <div className="absolute top-2 right-2 bg-black/70 text-white text-[9px] px-2 py-1 rounded-lg font-black backdrop-blur-md">สต็อก: {p.stock}</div>
+                        <div className="absolute top-2 right-2 bg-black/70 text-white text-[9px] px-2 py-1 rounded-lg font-black backdrop-blur-md">ສຕັອກ: {p.stock}</div>
                       </div>
                       <h4 className="font-black text-slate-800 text-xs truncate mb-1">{p.name}</h4>
                       <p className="text-sky-600 font-black text-sm">{formatMoney(p.price)}</p>
@@ -616,11 +679,11 @@ const BillModal = ({ isOpen, setNewBillTab, newBillTab, billItems, setBillItems,
             </div>
           </div>
           <div className={`w-full md:w-[450px] bg-slate-50 border-l flex flex-col h-full p-4 md:p-8 overflow-hidden ${newBillTab === 'checkout' ? 'flex' : 'hidden md:flex'}`}>
-            <div className="hidden md:flex justify-between items-center mb-6"><h3 className="text-2xl font-black text-slate-800">ตะกร้าสินค้า</h3><button onClick={()=>setIsOpen(false)} className="p-3 bg-white border rounded-2xl"><X size={20}/></button></div>
+            <div className="hidden md:flex justify-between items-center mb-6"><h3 className="text-2xl font-black text-slate-800">ຕະກ້າສິນຄ້າ</h3><button onClick={()=>setIsOpen(false)} className="p-3 bg-white border rounded-2xl"><X size={20}/></button></div>
             <div className="space-y-3 mb-6 overflow-y-auto max-h-[30%] pr-1">
-                <input value={customerName} onChange={e=>setCustomerName(e.target.value)} placeholder="ชื่อลูกค้า" className="w-full p-3 bg-white border-2 border-transparent focus:border-sky-500 rounded-xl font-bold text-xs outline-none" />
-                <input value={customerPhone} onChange={e=>setCustomerPhone(e.target.value)} placeholder="เบอร์โทรศัพท์" className="w-full p-3 bg-white border-2 border-transparent focus:border-sky-500 rounded-xl font-bold text-xs outline-none" />
-                <textarea value={customerAddress} onChange={e=>setCustomerAddress(e.target.value)} placeholder="ที่อยู่จัดส่ง" className="w-full p-3 bg-white border-2 border-transparent focus:border-sky-500 rounded-xl font-bold h-20 text-xs resize-none outline-none" />
+                <input value={customerName} onChange={e=>setCustomerName(e.target.value)} placeholder={t.order_cust_name} className="w-full p-3 bg-white border-2 border-transparent focus:border-sky-500 rounded-xl font-bold text-xs outline-none" />
+                <input value={customerPhone} onChange={e=>setCustomerPhone(e.target.value)} placeholder={t.order_cust_phone} className="w-full p-3 bg-white border-2 border-transparent focus:border-sky-500 rounded-xl font-bold text-xs outline-none" />
+                <textarea value={customerAddress} onChange={e=>setCustomerAddress(e.target.value)} placeholder={t.order_cust_addr} className="w-full p-3 bg-white border-2 border-transparent focus:border-sky-500 rounded-xl font-bold h-20 text-xs resize-none outline-none" />
                 <div className="grid grid-cols-2 gap-2">
                     <select value={shippingCarrier} onChange={e=>setShippingCarrier(e.target.value as any)} className="p-3 bg-white border rounded-xl font-bold text-[10px]">
                       <option value="None">{t.ship_none}</option>
@@ -628,11 +691,14 @@ const BillModal = ({ isOpen, setNewBillTab, newBillTab, billItems, setBillItems,
                       <option value="Meexai">{t.ship_meexai}</option>
                       <option value="Rungarun">{t.ship_rungarun}</option>
                     </select>
-                    <select value={paymentMethod} onChange={e=>setPaymentMethod(e.target.value as any)} className="p-3 bg-white border rounded-xl font-bold text-[10px]"><option value="Transfer">โอนเงิน</option><option value="COD">COD</option></select>
+                    <select value={paymentMethod} onChange={e=>setPaymentMethod(e.target.value as any)} className="p-3 bg-white border rounded-xl font-bold text-[10px]">
+                      <option value="Transfer">{t.payment_transfer}</option>
+                      <option value="COD">{t.payment_cod}</option>
+                    </select>
                 </div>
             </div>
             <div className="flex-1 overflow-y-auto space-y-2 mb-4 mt-2 pr-1 custom-scrollbar">
-                {billItems.length > 0 && <div className="text-right mb-2"><button onClick={()=>setBillItems([])} className="text-[9px] font-bold text-rose-400 hover:text-rose-600">ล้างตะกร้า</button></div>}
+                {billItems.length > 0 && <div className="text-right mb-2"><button onClick={()=>setBillItems([])} className="text-[9px] font-bold text-rose-400 hover:text-rose-600">ລ້າງຕະກ້າ</button></div>}
                 {billItems.map((it:any) => (
                   <div key={it.id} className="flex items-center gap-3 p-3 bg-white rounded-2xl border-2 border-slate-100 shadow-sm animate-in slide-in-from-right-2">
                       <div className="w-12 h-12 rounded-xl overflow-hidden border flex-shrink-0">{it.imageUrl ? <img src={it.imageUrl} className="w-full h-full object-cover" /> : <div className={`w-full h-full ${it.color} text-white flex items-center justify-center text-xs font-black`}>{it.name.charAt(0)}</div>}</div>
@@ -647,8 +713,8 @@ const BillModal = ({ isOpen, setNewBillTab, newBillTab, billItems, setBillItems,
                 ))}
             </div>
             <div className="mt-auto bg-white p-6 rounded-[2.5rem] border-t shadow-xl">
-                <div className="flex justify-between items-end mb-5"><div><span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">ยอดรวมสุทธิ</span><p className="text-3xl font-black text-sky-600">{formatMoney(cartTotal)}</p></div></div>
-                <button disabled={billItems.length === 0} onClick={handleCheckout} className="w-full py-5 bg-sky-600 disabled:bg-slate-200 text-white rounded-[1.5rem] font-black text-xl shadow-xl flex items-center justify-center gap-3 active:scale-[0.98] transition-all"><CheckCircle2 size={24}/> {isEditing ? 'บันทึกแก้ไข' : 'ยืนยันสั่งซื้อ'}</button>
+                <div className="flex justify-between items-end mb-5"><div><span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">ຍອດລວມສຸດທິ</span><p className="text-3xl font-black text-sky-600">{formatMoney(cartTotal)}</p></div></div>
+                <button disabled={billItems.length === 0} onClick={handleCheckout} className="w-full py-5 bg-sky-600 disabled:bg-slate-200 text-white rounded-[1.5rem] font-black text-xl shadow-xl flex items-center justify-center gap-3 active:scale-[0.98] transition-all"><CheckCircle2 size={24}/> {isEditing ? 'ບັນທຶກແກ້ໄຂ' : 'ຢືນຢັນສັ່ງຊື້'}</button>
             </div>
           </div>
       </div>
@@ -660,18 +726,18 @@ const ProductModal = ({ editingProduct, setIsProductModalOpen, handleImageUpload
   <div className="fixed inset-0 bg-slate-950/95 z-[600] flex items-center justify-center p-4 backdrop-blur-xl animate-in zoom-in-95">
     <Card className="w-full max-w-xl p-10 relative">
         <button onClick={()=>setIsProductModalOpen(false)} className="absolute top-4 right-4 p-2 bg-slate-100 rounded-full"><X size={20}/></button>
-        <h3 className="text-2xl font-black mb-6 text-slate-800 flex items-center gap-3"><Package className="text-sky-500" size={24}/> {editingProduct ? 'แก้ไขสินค้า' : 'เพิ่มสินค้าใหม่'}</h3>
+        <h3 className="text-2xl font-black mb-6 text-slate-800 flex items-center gap-3"><Package className="text-sky-500" size={24}/> {editingProduct ? 'ແກ້ໄຂສິນຄ້າ' : 'ເພີ່ມສິນຄ້າໃໝ່'}</h3>
         <form onSubmit={async (e) => {
           e.preventDefault(); const fd = new FormData(e.currentTarget);
           const p = { id: editingProduct?.id || uuidv4(), name: fd.get('name') as string, code: fd.get('code') as string, cost: Number(fd.get('cost')), price: Number(fd.get('price')), stock: Number(fd.get('stock')), imageUrl: editingProduct?.imageUrl || "", color: editingProduct?.color || "bg-sky-500", category: fd.get('category') as string || "General" };
           await setDoc(doc(db, 'products', p.id), p); setIsProductModalOpen(false);
         }} className="space-y-4">
           <div className="flex justify-center mb-6"><div className="relative"><div className="w-32 h-32 rounded-[2rem] bg-slate-50 border-4 border-white shadow-xl flex items-center justify-center border-dashed border-slate-200 overflow-hidden">{editingProduct?.imageUrl ? <img src={editingProduct.imageUrl} className="w-full h-full object-cover" /> : <ImageIcon size={32} className="text-slate-300"/>}</div><label className="absolute bottom-0 right-0 p-3 bg-sky-600 text-white rounded-xl shadow-lg cursor-pointer"><Upload size={16}/><input type="file" className="hidden" accept="image/*" onChange={e => handleImageUpload(e, (url:string) => setEditingProduct((prev:any) => ({...prev, imageUrl: url})))} /></label></div></div>
-          <input name="name" required defaultValue={editingProduct?.name} placeholder="ชื่อสินค้า" className="w-full p-4 bg-slate-50 border rounded-xl font-bold outline-none" />
-          <input name="code" required defaultValue={editingProduct?.code} placeholder="รหัส SKU" className="w-full p-4 bg-slate-50 border rounded-xl font-bold outline-none" />
-          <div className="grid grid-cols-2 gap-4"><input name="cost" type="number" required defaultValue={editingProduct?.cost} placeholder="ราคาทุน" className="w-full p-4 bg-slate-50 border rounded-xl font-bold outline-none" /><input name="price" type="number" required defaultValue={editingProduct?.price} placeholder="ราคาขาย" className="w-full p-4 bg-sky-50 border-sky-100 rounded-xl font-black text-sky-600 outline-none" /></div>
-          <div className="grid grid-cols-2 gap-4"><input name="stock" type="number" required defaultValue={editingProduct?.stock} placeholder="สต็อก" className="w-full p-4 bg-slate-50 border rounded-xl font-bold outline-none" /><input name="category" defaultValue={editingProduct?.category} placeholder="กลุ่มสินค้า" className="w-full p-4 bg-slate-50 border rounded-xl font-bold outline-none" /></div>
-          <button type="submit" className="w-full py-4 bg-sky-600 text-white rounded-xl font-black shadow-xl mt-4 active:scale-95 transition-all">บันทึกสินค้า</button>
+          <input name="name" required defaultValue={editingProduct?.name} placeholder="ຊື່ສິນຄ້າ" className="w-full p-4 bg-slate-50 border rounded-xl font-bold outline-none" />
+          <input name="code" required defaultValue={editingProduct?.code} placeholder="ລະຫັດ SKU" className="w-full p-4 bg-slate-50 border rounded-xl font-bold outline-none" />
+          <div className="grid grid-cols-2 gap-4"><input name="cost" type="number" required defaultValue={editingProduct?.cost} placeholder="ລາຄາຕົ້ນທຶນ" className="w-full p-4 bg-slate-50 border rounded-xl font-bold outline-none" /><input name="price" type="number" required defaultValue={editingProduct?.price} placeholder="ລາຄາຂາຍ" className="w-full p-4 bg-sky-50 border-sky-100 rounded-xl font-black text-sky-600 outline-none" /></div>
+          <div className="grid grid-cols-2 gap-4"><input name="stock" type="number" required defaultValue={editingProduct?.stock} placeholder="ສຕັອກ" className="w-full p-4 bg-slate-50 border rounded-xl font-bold outline-none" /><input name="category" defaultValue={editingProduct?.category} placeholder="ໝວດໝູ່" className="w-full p-4 bg-slate-50 border rounded-xl font-bold outline-none" /></div>
+          <button type="submit" className="w-full py-4 bg-sky-600 text-white rounded-xl font-black shadow-xl mt-4 active:scale-95 transition-all">ບັນທຶກສິນຄ້າ</button>
         </form>
     </Card>
   </div>
@@ -681,7 +747,7 @@ const PromoModal = ({ editingPromo, setIsPromoModalOpen, products, promoSkusInpu
   <div className="fixed inset-0 bg-slate-950/95 z-[600] flex items-center justify-center p-4 backdrop-blur-xl animate-in zoom-in-95">
     <Card className="w-full max-w-2xl p-10 relative">
         <button onClick={()=>setIsPromoModalOpen(false)} className="absolute top-4 right-4 p-2 bg-slate-100 rounded-full"><X size={20}/></button>
-        <h3 className="text-2xl font-black mb-6 text-slate-800 flex items-center gap-3"><Tag className="text-sky-500" size={24}/> ตั้งค่าโปรโมชั่น</h3>
+        <h3 className="text-2xl font-black mb-6 text-slate-800 flex items-center gap-3"><Tag className="text-sky-500" size={24}/> ຕັ້ງຄ່າໂປຣໂມຊັ່ນ</h3>
         <form onSubmit={async (e) => {
           e.preventDefault(); const fd = new FormData(e.currentTarget); const tiers: PromoTier[] = [];
           for(let i=1; i<=6; i++) { const q = fd.get(`qty_${i}`); const pr = fd.get(`price_${i}`); if(q && pr) tiers.push({ minQty: Number(q), unitPrice: Number(pr) }); }
@@ -690,17 +756,17 @@ const PromoModal = ({ editingPromo, setIsPromoModalOpen, products, promoSkusInpu
           const promo = { id: editingPromo?.id || uuidv4(), name: fd.get('name') as string, targetProductIds: selectedIds, isActive: true, tiers };
           await setDoc(doc(db, 'promotions', promo.id), promo); setIsPromoModalOpen(false);
         }} className="space-y-4">
-          <input name="name" required defaultValue={editingPromo?.name} placeholder="ชื่อโปรโมชั่น" className="w-full p-4 bg-slate-50 border rounded-xl font-bold outline-none" />
+          <input name="name" required defaultValue={editingPromo?.name} placeholder="ຊື່ໂປຣໂມຊັ່ນ" className="w-full p-4 bg-slate-50 border rounded-xl font-bold outline-none" />
           <textarea value={promoSkusInput} onChange={e=>setPromoSkusInput(e.target.value)} placeholder={t.promo_sku_placeholder} className="w-full p-4 bg-slate-50 border rounded-xl font-bold h-24 text-xs outline-none resize-none" />
           <div className="grid grid-cols-2 gap-3">
             {Array.from({length: 6}).map((_, i) => (
               <div key={i} className="flex gap-2 items-center bg-slate-50 p-2 rounded-xl border">
-                <input name={`qty_${i+1}`} type="number" placeholder="ชิ้น" defaultValue={editingPromo?.tiers?.[i]?.minQty} className="w-16 p-2 bg-white border rounded-lg font-bold text-center text-xs" />
-                <ArrowRight size={12} className="text-slate-300"/><input name={`price_${i+1}`} type="number" placeholder="ราคา" defaultValue={editingPromo?.tiers?.[i]?.unitPrice} className="flex-1 p-2 bg-white border rounded-lg font-black text-sky-600 text-center text-xs" />
+                <input name={`qty_${i+1}`} type="number" placeholder="ຊິ້ນ" defaultValue={editingPromo?.tiers?.[i]?.minQty} className="w-16 p-2 bg-white border rounded-lg font-bold text-center text-xs" />
+                <ArrowRight size={12} className="text-slate-300"/><input name={`price_${i+1}`} type="number" placeholder="ລາຄາ" defaultValue={editingPromo?.tiers?.[i]?.unitPrice} className="flex-1 p-2 bg-white border rounded-lg font-black text-sky-600 text-center text-xs" />
               </div>
             ))}
           </div>
-          <button type="submit" className="w-full py-4 bg-sky-600 text-white rounded-xl font-black shadow-xl mt-4 active:scale-95 transition-all">บันทึกโปรโมชั่น</button>
+          <button type="submit" className="w-full py-4 bg-sky-600 text-white rounded-xl font-black shadow-xl mt-4 active:scale-95 transition-all">ບັນທຶກໂປຣໂມຊັ່ນ</button>
         </form>
     </Card>
   </div>
@@ -712,20 +778,20 @@ const PrintArea = ({ activePrintBill, storeProfile, formatMoney, printType }: an
     <div className="print-area hidden">
       <div className="p-10 bg-white min-h-screen text-black border-2 border-black">
         <div className="flex justify-between border-b-4 border-black pb-6 mb-6">
-           <div><h1 className="text-3xl font-black uppercase">{storeProfile.name}</h1><p className="text-xs font-bold">{storeProfile.address}</p><p className="text-xs font-bold">โทร: {storeProfile.phone}</p></div>
-           <div className="text-right"><h2 className="text-3xl font-black uppercase">บิลขายสินค้า</h2><p className="font-black">#{activePrintBill.id.slice(0,10).toUpperCase()}</p><p className="font-bold">{activePrintBill.date}</p></div>
+           <div><h1 className="text-3xl font-black uppercase">{storeProfile.name}</h1><p className="text-xs font-bold">{storeProfile.address}</p><p className="text-xs font-bold">ໂທ: {storeProfile.phone}</p></div>
+           <div className="text-right"><h2 className="text-3xl font-black uppercase">ບິນຂາຍສິນຄ້າ</h2><p className="font-black">#{activePrintBill.id.slice(0,10).toUpperCase()}</p><p className="font-bold">{activePrintBill.date}</p></div>
         </div>
-        <div className="mb-6"><p className="text-sm font-black uppercase">Customer Info:</p><p className="text-lg font-bold">{activePrintBill.customerName || 'Walk-in'}</p><p className="text-sm">{activePrintBill.customerPhone}</p><p className="text-sm italic">{activePrintBill.customerAddress}</p></div>
+        <div className="mb-6"><p className="text-sm font-black uppercase">ຂໍ້ມູນລູກຄ້າ:</p><p className="text-lg font-bold">{activePrintBill.customerName || 'Walk-in'}</p><p className="text-sm">{activePrintBill.customerPhone}</p><p className="text-sm italic">{activePrintBill.customerAddress}</p></div>
         <table className="w-full border-collapse border-2 border-black mb-6">
-           <thead><tr className="bg-slate-200"><th className="p-2 border-2 border-black text-left">รายการ</th><th className="p-2 border-2 border-black text-center w-20">จำนวน</th><th className="p-2 border-2 border-black text-right w-32">ราคา/หน่วย</th><th className="p-2 border-2 border-black text-right w-40">รวม</th></tr></thead>
+           <thead><tr className="bg-slate-200"><th className="p-2 border-2 border-black text-left">ລາຍການ</th><th className="p-2 border-2 border-black text-center w-20">ຈຳນວນ</th><th className="p-2 border-2 border-black text-right w-32">ລາຄາ/ໜ່ວຍ</th><th className="p-2 border-2 border-black text-right w-40">ລວມ</th></tr></thead>
            <tbody>
               {activePrintBill.items.map((item:any, i:number) => (
                 <tr key={i}><td className="p-2 border-2 border-black font-bold">{item.name}</td><td className="p-2 border-2 border-black text-center font-bold">{item.quantity}</td><td className="p-2 border-2 border-black text-right">{formatMoney(item.price)}</td><td className="p-2 border-2 border-black text-right font-black">{formatMoney(item.price * item.quantity)}</td></tr>
               ))}
            </tbody>
         </table>
-        <div className="flex justify-end"><div className="w-72 space-y-2"><div className="flex justify-between border-t-2 border-black pt-4 font-black text-2xl"><span>ยอดเงินสุทธิ</span><span>{formatMoney(activePrintBill.total)}</span></div></div></div>
-        <div className="mt-32 grid grid-cols-2 gap-20 text-center"><div className="border-t-2 border-black pt-2 font-black">ผู้รับของ</div><div className="border-t-2 border-black pt-2 font-black">ผู้ออกบิล</div></div>
+        <div className="flex justify-end"><div className="w-72 space-y-2"><div className="flex justify-between border-t-2 border-black pt-4 font-black text-2xl"><span>ຍອດເງິນສຸດທິ</span><span>{formatMoney(activePrintBill.total)}</span></div></div></div>
+        <div className="mt-32 grid grid-cols-2 gap-20 text-center"><div className="border-t-2 border-black pt-2 font-black">ຜູ້ຮັບເຄື່ອງ</div><div className="border-t-2 border-black pt-2 font-black">ຜູ້ອອກບິນ</div></div>
       </div>
     </div>
   );
