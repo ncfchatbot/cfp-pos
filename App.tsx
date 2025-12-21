@@ -190,13 +190,14 @@ const App: React.FC = () => {
     }));
   };
 
-  const addToCart = (p: Product) => {
+  const addToCart = (p: Product, quantity: number = 1) => {
+    const safeQty = isNaN(quantity) || quantity <= 0 ? 1 : quantity;
     setBillItems(prev => {
       const exist = prev.find(i => i.id === p.id);
-      const nQty = exist ? exist.quantity + 1 : 1;
+      const nQty = exist ? exist.quantity + safeQty : safeQty;
       const nPrice = getProductPrice(p, nQty);
       if (exist) return prev.map(i => i.id === p.id ? { ...i, quantity: nQty, price: nPrice } : i);
-      return [...prev, { ...p, quantity: 1, price: nPrice }];
+      return [...prev, { ...p, quantity: safeQty, price: nPrice }];
     });
   };
 
@@ -910,7 +911,9 @@ const SettingsView = ({ storeProfile, setStoreProfile, handleImageUpload, handle
 );
 
 const BillModal = ({ isOpen, setNewBillTab, newBillTab, billItems, setBillItems, products, addToCart, updateCartQuantity, customerName, setCustomerName, customerPhone, setCustomerPhone, customerAddress, setCustomerAddress, shippingCarrier, setShippingCarrier, paymentMethod, setPaymentMethod, handleCheckout, formatMoney, cartTotal, t, skuSearch, setSkuSearch, setIsOpen, isEditing }: any) => {
+  const [qtyToFill, setQtyToFill] = useState(1);
   if (!isOpen) return null;
+  
   return (
     <div className="fixed inset-0 bg-slate-950/95 z-[500] flex items-center justify-center backdrop-blur-xl animate-in zoom-in-95">
       <div className="bg-white w-full h-full md:max-w-[95vw] md:h-[90vh] md:rounded-[3rem] shadow-2xl flex flex-col md:flex-row overflow-hidden relative">
@@ -921,10 +924,27 @@ const BillModal = ({ isOpen, setNewBillTab, newBillTab, billItems, setBillItems,
           </div>
           <div className={`flex-1 flex flex-col p-4 md:p-8 overflow-hidden bg-white ${newBillTab === 'items' ? 'flex' : 'hidden md:flex'}`}>
             <div className="hidden md:flex justify-between items-center mb-6"><h3 className="text-2xl font-black text-slate-800">{isEditing ? 'ปรับปรุงรายการสินค้า' : 'เลือกสินค้า'}</h3></div>
-            <div className="relative mb-6"><Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" size={18}/><input value={skuSearch} onChange={e=>setSkuSearch(e.target.value)} placeholder={t.search_sku} className="w-full p-4 pl-12 bg-slate-50 border rounded-xl font-bold outline-none" /></div>
+            
+            <div className="flex flex-col sm:flex-row gap-4 mb-6">
+                <div className="relative flex-1">
+                    <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" size={18}/>
+                    <input value={skuSearch} onChange={e=>setSkuSearch(e.target.value)} placeholder={t.search_sku} className="w-full p-4 pl-12 bg-slate-50 border rounded-xl font-bold outline-none" />
+                </div>
+                <div className="w-full sm:w-48 bg-slate-50 border rounded-xl flex items-center p-1">
+                    <span className="px-3 text-[10px] font-black text-slate-400 uppercase leading-none">ระบุจำนวน</span>
+                    <input 
+                      type="number" 
+                      min="1" 
+                      value={qtyToFill} 
+                      onChange={e => setQtyToFill(Math.max(1, parseInt(e.target.value) || 1))} 
+                      className="flex-1 bg-transparent p-3 font-black text-sky-600 outline-none text-right"
+                    />
+                </div>
+            </div>
+
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 overflow-y-auto flex-1 custom-scrollbar pb-32 md:pb-0">
                 {products.filter((p:any) => !skuSearch || p.name.includes(skuSearch) || p.code.includes(skuSearch)).map((p:any) => (
-                  <button key={p.id} onClick={()=>addToCart(p)} className="bg-white p-4 rounded-[2rem] border shadow-sm hover:border-sky-600 transition-all text-left group">
+                  <button key={p.id} onClick={()=>addToCart(p, qtyToFill)} className="bg-white p-4 rounded-[2rem] border shadow-sm hover:border-sky-600 transition-all text-left group active:scale-95">
                       <div className="w-full aspect-square rounded-[1.5rem] bg-slate-50 mb-2 overflow-hidden border relative">
                         {p.imageUrl ? <img src={p.imageUrl} className="w-full h-full object-cover" /> : <div className={`w-full h-full ${p.color} flex items-center justify-center text-4xl font-black text-white`}>{p.name.charAt(0)}</div>}
                         <div className="absolute top-1 right-1 bg-black/60 text-white text-[9px] px-1.5 py-0.5 rounded-lg font-black">สต็อก: {p.stock}</div>
@@ -952,7 +972,6 @@ const BillModal = ({ isOpen, setNewBillTab, newBillTab, billItems, setBillItems,
                       <div className="w-10 h-10 rounded-lg overflow-hidden flex-shrink-0">{it.imageUrl ? <img src={it.imageUrl} className="w-full h-full object-cover" /> : <div className={`w-full h-full ${it.color} text-white flex items-center justify-center text-[10px] font-black`}>{it.name.charAt(0)}</div>}</div>
                       <div className="flex-1 min-w-0"><div className="text-[10px] font-black truncate">{it.name}</div><div className="text-[9px] font-bold text-sky-600">{formatMoney(it.price)}</div></div>
                       
-                      {/* Editable Quantity Section */}
                       <div className="flex items-center gap-1 bg-slate-50 p-1 rounded-lg">
                         <button onClick={()=>updateCartQuantity(it.id, it.quantity - 1)} className="p-1 text-slate-400 hover:text-sky-600 transition-colors"><Minus size={14}/></button>
                         <input 
