@@ -54,6 +54,9 @@ const App: React.FC = () => {
   const [isTyping, setIsTyping] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
+  // PWA Install State
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+
   // Printing State
   const [printType, setPrintType] = useState<'stock' | 'bill' | null>(null);
   const [activePrintBill, setActivePrintBill] = useState<SaleRecord | null>(null);
@@ -84,6 +87,23 @@ const App: React.FC = () => {
   // Logic: Persistence
   useEffect(() => { localStorage.setItem('pos_language', language); }, [language]);
   useEffect(() => { localStorage.setItem('pos_profile', JSON.stringify(storeProfile)); }, [storeProfile]);
+
+  // Logic: PWA Install Event
+  useEffect(() => {
+    const handler = (e: any) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+    };
+    window.addEventListener('beforeinstallprompt', handler);
+    return () => window.removeEventListener('beforeinstallprompt', handler);
+  }, []);
+
+  const handleInstallClick = async () => {
+    if (!deferredPrompt) return;
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+    if (outcome === 'accepted') setDeferredPrompt(null);
+  };
 
   // Derived Categories
   const productCategories = useMemo(() => {
@@ -540,6 +560,13 @@ const App: React.FC = () => {
                     <textarea value={storeProfile.address} onChange={e=>setStoreProfile({...storeProfile, address: e.target.value})} placeholder="ທີ່ຢູ່ຮ້ານ" className="w-full p-4 bg-slate-50 border rounded-xl font-bold outline-none text-sm h-24 focus:border-sky-500" />
                   </div>
                   <button onClick={()=>{ alert('ບັນທຶກສຳເລັດ!'); }} className="w-full py-4 bg-sky-600 text-white rounded-xl font-black shadow-lg hover:bg-sky-700 flex items-center justify-center gap-2 active:scale-95"><Save size={18}/> ບັນທຶກຂໍ້ມູນ</button>
+                  
+                  {/* PWA Install Button */}
+                  {deferredPrompt && (
+                    <button onClick={handleInstallClick} className="w-full py-4 bg-emerald-600 text-white rounded-xl font-black shadow-lg hover:bg-emerald-700 flex items-center justify-center gap-2 active:scale-95">
+                      <Smartphone size={18}/> {t.install_app}
+                    </button>
+                  )}
                 </Card>
 
                 <div className="mt-8">

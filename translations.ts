@@ -53,7 +53,8 @@ export const translations: Record<Language, any> = {
     status_paid: 'ຊຳລະແລ້ວ',
     status_unpaid: 'ຄ້າງຊຳລະ',
     status_shipped: 'ສົ່ງແລ້ວ',
-    status_pending: 'ລໍຖ້າສົ່ງ'
+    status_pending: 'ລໍຖ້າສົ່ງ',
+    install_app: 'ຕິດຕັ້ງແອັບລົງໃນເຄື່ອງ'
   },
   th: {
     menu_dashboard: 'ภาพรวม (Dashboard)',
@@ -106,7 +107,8 @@ export const translations: Record<Language, any> = {
     status_paid: 'เก็บเงินแล้ว',
     status_unpaid: 'ค้างจ่าย',
     status_shipped: 'จัดส่งแล้ว',
-    status_pending: 'รอจัดส่ง'
+    status_pending: 'รอจัดส่ง',
+    install_app: 'ติดตั้งแอปเครื่องนี้'
   },
   en: {
     menu_dashboard: 'Dashboard',
@@ -158,6 +160,7 @@ export const translations: Record<Language, any> = {
     status_paid: 'Paid',
     status_unpaid: 'Unpaid',
     status_shipped: 'Shipped',
-    status_pending: 'Pending'
+    status_pending: 'Pending',
+    install_app: 'Install as App'
   }
 };
